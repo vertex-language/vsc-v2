@@ -5,7 +5,7 @@ The grammar of Vertex v2 `.vs` files. It is [rust_grammar.md](rust_grammar.md), 
 | | |
 | --- | --- |
 | Base | The Rust Reference at [`a2ae66d7037c`](https://github.com/rust-lang/reference/tree/a2ae66d7037cbedac68746b9510b24cc34b96d69) (2026-11-04), the same commit as rust_grammar.md |
-| Productions | 343: 68 changed from Rust, 26 added, 35 removed |
+| Productions | 340: 67 changed from Rust, 23 added, 35 removed |
 | Rule | Anything not changed here is Rust's production, unchanged, and means what it means in Rust |
 | License | The Rust productions come from The Rust Reference, dual-licensed MIT and Apache-2.0, copyright The Rust Project Developers |
 
@@ -90,7 +90,7 @@ Under every block, **Changes from Rust** lists what was added, changed or remove
 
 | # | Exception | Where it shows in the grammar |
 | --- | --- | --- |
-| 1 | `package` + string imports | `SourceFile`, `PackageDeclaration`, `ImportDeclaration`, `ImportSpec`; `Module`, `ExternCrate`, `UseDeclaration` removed |
+| 1 | `package` + string imports | `SourceFile`, `PackageDeclaration`, `ImportDeclaration`, `ImportClause`, `NamedImports`, `ImportSpec`; `Module`, `ExternCrate`, `UseDeclaration` removed |
 | 2 | Long-form types | `NeverType` is `never`; type names like `int64` are names, not grammar (see `BUILTIN_NAMES`) |
 | 3 | `class` | `Class` |
 | 4 | `func` | `Function`, `BareFunctionType`, keywords |
@@ -100,9 +100,9 @@ Under every block, **Changes from Rust** lists what was added, changed or remove
 | 8 | `implement`, flat receivers | `InherentImpl`, `TraitImpl`, `Receiver` |
 | 9 | `@` attributes | `OuterAttribute`; `InnerAttribute` removed |
 | 10 | No `;`, newline separation | `LINE_END`, `Terminator`, `Separation`, `Statements`, `StructFields`, `EnumVariants`, `MatchArms`, the item lists |
-| 11 | Go naming | Names are a lint, not grammar; Rust names inside built-in syntax use Go casing (`cfgAttr`, `clobberAbi`) |
+| 11 | `camelCase` naming | Names are a lint, not grammar; Rust names inside built-in syntax use `camelCase` (`cfgAttr`, `clobberAbi`) |
 | 12 | Built-ins without `!` | `BuiltinExpression`, `VecExpression`, `AsmExpression`, `GlobalAsm`, `BUILTIN_NAMES`; all macro productions removed |
-| 13 | Origins | `OriginRef`, `Origin`, `OriginParam`, `OriginWhereClauseItem`, `ForOrigins`; `Lifetime` removed |
+| 13 | Lifetimes and labels without `'` | `Lifetime`, `LoopLabel`, `BreakExpression`, `ContinueExpression`; `LIFETIME_TOKEN` and `LIFETIME_OR_LABEL` removed |
 | 14 | Function literals, `func(T)` values | `FunctionLiteral`, `FunctionValueType`, `AsyncBlockExpression`; `ClosureExpression` removed |
 
 ## Notation
@@ -144,11 +144,11 @@ Writing the exceptions as productions forced some choices that the proposal does
 
 - **One edition.** Vertex follows Rust 2024 only. Syntax Rust keeps for older editions is removed: bare trait objects without `dyn`, `a...b` range patterns, type-only parameters, and `extern` blocks without `unsafe`. Edition notes are dropped.
 - **Paths and fields share `.`.** The parser reads `a.b.c` as a path. Name resolution then reads the segments after a value as field accesses or a method call, the way Go tells `pkg.Name` from `x.field`.
-- **`&[a] T` versus `&[T]`.** After `&`, a bracketed list followed by a type is an origin (`&[a] string`); otherwise it is a slice type (`&[uint8]`). As a generic argument, `[x]` is an origin when *x* names a variable, parameter or origin, and a slice type when it names a type (`Lines<[doc]>` versus `Box<[uint8]>`).
+- **`&a T` versus `&T`.** After `&`, an identifier, `static` or `_` followed on the same line by `mut` or a type is a lifetime (`&a string`, `&static string`, `&a mut Task`); otherwise there is no lifetime and the token after `&` begins the type itself (`&string`, `&[uint8]`). In generic parameters, arguments and bounds (`struct S<a, T>`, `T: a`), lifetime parameters and type parameters share the same syntax and are distinguished by name resolution (`camelCase` lifetimes versus `PascalCase` types and traits).
 - **`func(T)` versus raw function pointers.** A function type with no qualifier, `func(uint)`, is a function value (Rust's `Rc<dyn Fn>`). With `unsafe` or `extern`, it is a raw function pointer (`unsafe extern "C" func(…)`). Rust's safe, Rust-ABI pointer `fn(i32) -> i32` has no spelling of its own; named functions convert to `func(T)` instead.
-- **A literal versus a flat receiver.** At item level, `func (t: &Task) IsOpen()` has a name after the parentheses; a function literal `func(t) { … }` is followed by `{` or `->`.
-- **Generics on flat receivers.** Type parameters in a flat receiver's type are introduced by naming them, as in Go: `func (s: &Stack<T>) Push(v: T)`. Bounds on them need an `implement` block.
-- **Loop labels keep Rust's `'outer:`.** Exception 13 removes the tick from lifetimes only. Labels (`'outer: loop { break 'outer }`) are not covered by any exception, so they stay Rust's. Go and Swift write `outer:` and `break outer` if you'd rather change them.
+- **A literal versus a flat receiver.** At item level, `func (t: &Task) isOpen()` has a name after the parentheses; a function literal `func(t) { … }` is followed by `{` or `->`.
+- **Generics on flat receivers.** Type parameters in a flat receiver's type are introduced by naming them, as in Go: `func (s: &Stack<T>) push(v: T)`. Bounds on them need an `implement` block.
+- **Loop labels drop `'` too.** Exception 13 removes the tick from both lifetimes and loop labels: `outer: for … { break outer }`, as in Go, Swift and TypeScript. In `break label expr`, the first identifier is the label; in `break name`, name resolution checks whether `name` is an enclosing loop label or a value expression.
 - **Literal suffixes stay Rust's.** `1u8`, `2.5f32` and other suffixes still lex. With Vertex's type names they would read `1uint8`; whether to keep suffixes at all is open.
 - **Removed Rust keywords stay reserved.** `fn`, `mod`, `move`, `pub`, `crate` and `super` can't be used as names, so Rust code never parses with a different meaning.
 - **Struct-like enum variants use newlines too.** `Parse { line: int64; message: string }` follows the struct field rule. The proposal's exception 10 example writes this variant with commas, which this grammar doesn't accept.
@@ -290,7 +290,8 @@ Rust: [keywords.md](https://doc.rust-lang.org/reference/keywords.html)
 
 ```
 @root WEAK_KEYWORDS ->
-      `raw`
+      `from`
+    | `raw`
     | `safe`
     | `union`
 
@@ -298,7 +299,7 @@ Rust: [keywords.md](https://doc.rust-lang.org/reference/keywords.html)
       `print` | `println` | `eprint` | `eprintln` | `format` | `vec`
     | `assert` | `assertEq` | `panic` | `todo` | `unreachable`
     | `asm` | `nakedAsm` | `globalAsm`
-    | `never` | `Origin` | `cstring`
+    | `never` | `cstring`
     | `c_char` | `c_schar` | `c_uchar` | `c_short` | `c_ushort`
     | `c_int` | `c_uint` | `c_long` | `c_ulong` | `c_longlong` | `c_ulonglong`
     | `c_float` | `c_double` | `c_void`
@@ -306,8 +307,8 @@ Rust: [keywords.md](https://doc.rust-lang.org/reference/keywords.html)
 
 **Changes from Rust:**
 
-- Changed `WEAK_KEYWORDS` (exceptions 12, 13): `'static` is replaced by `[static]` (origins), and `macro_rules` goes with user macros.
-- Added `BUILTIN_NAMES` (exceptions 2, 12, 13): Built-in names. They are reserved and can't be redeclared, unlike Go's built-ins.
+- Changed `WEAK_KEYWORDS` (exceptions 1, 12, 13): Adds `from` (for `import … from "…"`). `'static` is replaced by `static` (already a strict keyword), and `macro_rules` goes with user macros.
+- Added `BUILTIN_NAMES` (exceptions 2, 11, 12): Built-in names. They are reserved and can't be redeclared, unlike Go's built-ins.
 
 ### Identifiers
 
@@ -447,10 +448,13 @@ Token ->
     | RAW_C_STRING_LITERAL
     | FLOAT_LITERAL
     | INTEGER_LITERAL
-    | LIFETIME_TOKEN
     | PUNCTUATION
     | IDENTIFIER_OR_KEYWORD
 ```
+
+**Changes from Rust:**
+
+- Changed `Token` (exception 13): Removes `LIFETIME_TOKEN` (lifetimes and loop labels have no `'`).
 
 *Suffixes*
 
@@ -635,25 +639,6 @@ FLOAT_EXPONENT ->
     (`e`|`E`) ^ (`+`|`-`)? `_`* DEC_DIGIT (DEC_DIGIT|`_`)*
 ```
 
-*Lifetimes and loop labels*
-
-<sub>category: lexer · Rust rule `lex.token.life.syntax`</sub>
-
-```
-LIFETIME_TOKEN ->
-      RAW_LIFETIME
-    | `'` IDENTIFIER_OR_KEYWORD !`'`
-
-LIFETIME_OR_LABEL ->
-      RAW_LIFETIME
-    | `'` NON_KEYWORD_IDENTIFIER !`'`
-
-RAW_LIFETIME ->
-    `'r#` ^ IDENTIFIER_OR_KEYWORD !`'`
-
-RESERVED_RAW_LIFETIME -> `'r#` (`_` | `crate` | `self` | `Self` | `super`) !(`'` | XID_Continue)
-```
-
 *Punctuation*
 
 <sub>category: lexer · Rust rule `lex.token.punct.syntax`</sub>
@@ -724,12 +709,14 @@ RESERVED_TOKEN ->
       RESERVED_GUARDED_STRING_LITERAL
     | RESERVED_POUNDS
     | RESERVED_RAW_IDENTIFIER
-    | RESERVED_RAW_LIFETIME
     | RESERVED_TOKEN_DOUBLE_QUOTE
-    | RESERVED_TOKEN_LIFETIME
     | RESERVED_TOKEN_POUND
     | RESERVED_TOKEN_SINGLE_QUOTE
 ```
+
+**Changes from Rust:**
+
+- Changed `RESERVED_TOKEN` (exception 13): Removes `RESERVED_RAW_LIFETIME` and `RESERVED_TOKEN_LIFETIME`.
 
 *Reserved prefixes*
 
@@ -744,10 +731,11 @@ RESERVED_TOKEN_SINGLE_QUOTE ->
 
 RESERVED_TOKEN_POUND ->
     IDENTIFIER_OR_KEYWORD _except `r` or `br` or `cr`_ `#`
-
-RESERVED_TOKEN_LIFETIME ->
-    `'` IDENTIFIER_OR_KEYWORD _except `r`_ `#`
 ```
+
+**Changes from Rust:**
+
+- Removed `RESERVED_TOKEN_LIFETIME` (exception 13): No `'lifetime` tokens.
 
 *Reserved guards*
 
@@ -798,10 +786,16 @@ Rust: [crates-and-source-files.md](https://doc.rust-lang.org/reference/crates-an
 PackageDeclaration -> OuterAttribute* `package` IDENTIFIER
 
 ImportDeclaration ->
-      `import` ImportSpec
-    | `import` `(` ImportSpec* `)`
+      `import` STRING_LITERAL
+    | `import` ImportClause `from` STRING_LITERAL
 
-ImportSpec -> IDENTIFIER? STRING_LITERAL
+ImportClause ->
+      IDENTIFIER ( `,` NamedImports )?
+    | NamedImports
+
+NamedImports -> `{` ( ImportSpec ( `,` ImportSpec )* `,`? )? `}`
+
+ImportSpec -> IDENTIFIER ( `as` IDENTIFIER )?
 
 ItemList -> Terminator* Item ( Separation Item )* Terminator*
 ```
@@ -811,8 +805,10 @@ ItemList -> Terminator* Item ( Separation Item )* Terminator*
 - Removed `Crate` (exception 1): Replaced by `SourceFile`: a file belongs to its folder's package.
 - Added `SourceFile` (exception 1): A source file: an optional package declaration, imports, then items.
 - Added `PackageDeclaration` (exceptions 1, 9): Go's package clause. Attributes on it apply to the whole package (Rust's inner attributes `#![…]`).
-- Added `ImportDeclaration` (exception 1): Go's import declaration, single or grouped.
-- Added `ImportSpec` (exception 1): An import path, optionally bound to another name: `geo "./geometry"`.
+- Added `ImportDeclaration` (exception 1): Go's `import "std/fs"` shorthand (binding the last path segment as a package), or TypeScript's `import … from "…"` for named items, an aliased package, or both.
+- Added `ImportClause` (exception 1): A package binding (`import geo from "./geometry"`), named bindings (`import { HashMap } from "std/collections"`), or both (`import http, { Error as HttpError } from "net/http"`).
+- Added `NamedImports` (exception 1): `{ A, B as C }`.
+- Added `ImportSpec` (exception 1): An imported item name, optionally renamed with `as`.
 - Added `ItemList` (exception 10): Items separated by line breaks or `;`.
 
 ## Conditional compilation
@@ -866,7 +862,7 @@ CfgAttrs -> Attr (`,` Attr)* `,`?
 
 **Changes from Rust:**
 
-- Changed `CfgAttrAttribute` (exception 11): Attribute names use Go casing. Configuration keys (`target_os`) keep Rust's spelling, as in the proposal.
+- Changed `CfgAttrAttribute` (exception 11): Attribute names use `camelCase`. Configuration keys (`target_os`) keep Rust's spelling, as in the proposal.
 
 ## Items
 
@@ -929,7 +925,7 @@ FunctionParameters ->
 
 SelfParam -> OuterAttribute* ( ShorthandSelf | TypedSelf )
 
-ShorthandSelf -> ( `&` OriginRef? `mut`? | `var` )? `self`
+ShorthandSelf -> ( `&` Lifetime? `mut`? | `var` )? `self`
 
 TypedSelf -> `var`? `self` `:` Type
 
@@ -945,9 +941,9 @@ FunctionReturnType -> `->` Type
 **Changes from Rust:**
 
 - Changed `Function` (exceptions 4, 8, 10): `fn` → `func`. Adds the flat `Receiver`. A missing body ends the declaration instead of `;`.
-- Added `Receiver` (exception 8): Go's method receiver, with Rust's `&`, `&mut` or by-value types: `func (t: &Task) IsOpen()`.
+- Added `Receiver` (exception 8): Go's method receiver, with Rust's `&`, `&mut` or by-value types: `func (t: &Task) isOpen()`.
 - Changed `FunctionQualifiers`: Vertex has one edition (Rust 2024), so the edition notes go.
-- Changed `ShorthandSelf` (exceptions 5, 13): `mut self` → `var self`; `&'a self` → `&[a] self`.
+- Changed `ShorthandSelf` (exceptions 5, 13): `mut self` → `var self`; `&'a self` → `&a self`.
 - Changed `TypedSelf` (exception 5): `mut self: T` → `var self: T`.
 - Changed `FunctionParam`: Parameters with only a type (2015 edition) go.
 
@@ -1151,9 +1147,9 @@ Rust: [items/generics.md](https://doc.rust-lang.org/reference/items/generics.htm
 ```
 GenericParams -> `<` ( GenericParam (`,` GenericParam)* `,`? )? `>`
 
-GenericParam -> OuterAttribute* ( OriginParam | TypeParam | ConstParam )
+GenericParam -> OuterAttribute* ( LifetimeParam | TypeParam | ConstParam )
 
-OriginParam -> IDENTIFIER `:` `Origin` ( `+` OriginRef )*
+LifetimeParam -> Lifetime ( `:` LifetimeBounds? )?
 
 TypeParam -> IDENTIFIER ( `:` Bounds? )? ( `=` Type )?
 
@@ -1161,12 +1157,6 @@ ConstParam ->
     `const` IDENTIFIER `:` Type
     ( `=` ( BlockExpression | IDENTIFIER | `-`?LiteralExpression ) )?
 ```
-
-**Changes from Rust:**
-
-- Changed `GenericParam` (exception 13): `LifetimeParam` → `OriginParam`.
-- Removed `LifetimeParam` (exception 13): Replaced by `OriginParam`.
-- Added `OriginParam` (exception 13): Rust's `'a: 'b` is `a: Origin + [b]`. Mojo declares origins as `origin: Origin`.
 
 *Where clauses*
 
@@ -1176,20 +1166,13 @@ ConstParam ->
 WhereClause -> `where` ( WhereClauseItem `,` )* WhereClauseItem?
 
 WhereClauseItem ->
-      OriginWhereClauseItem
+      LifetimeWhereClauseItem
     | TypeBoundWhereClauseItem
 
-OriginWhereClauseItem -> IDENTIFIER `:` OriginRef ( `+` OriginRef )*
+LifetimeWhereClauseItem -> Lifetime `:` LifetimeBounds?
 
-TypeBoundWhereClauseItem -> ForOrigins? Type `:` Bounds?
+TypeBoundWhereClauseItem -> ForLifetimes? Type `:` Bounds?
 ```
-
-**Changes from Rust:**
-
-- Changed `WhereClauseItem` (exception 13): `LifetimeWhereClauseItem` → `OriginWhereClauseItem`.
-- Removed `LifetimeWhereClauseItem` (exception 13): Replaced by `OriginWhereClauseItem`.
-- Added `OriginWhereClauseItem` (exception 13): Rust's `where 'a: 'b` is `where a: [b]`.
-- Changed `TypeBoundWhereClauseItem` (exception 13): `ForLifetimes` → `ForOrigins`.
 
 ### Associated items
 
@@ -1312,7 +1295,7 @@ CollapseDebuginfoOption ->
 
 **Changes from Rust:**
 
-- Changed `CollapseDebuginfoAttribute` (exception 11): Attribute names use Go casing.
+- Changed `CollapseDebuginfoAttribute` (exception 11): Attribute names use `camelCase`.
 
 ## Statements and expressions
 
@@ -1801,7 +1784,7 @@ ClosureParam -> OuterAttribute* PatternNoTopAlt ( `:` Type )?
 **Changes from Rust:**
 
 - Removed `ClosureExpression` (exception 14): Replaced by `FunctionLiteral`.
-- Added `FunctionLiteral` (exception 14): Go's function literal with Rust's closure meaning: `func(t) { t.IsOpen() }`. No `move`; a literal that escapes takes ownership of its captures.
+- Added `FunctionLiteral` (exception 14): Go's function literal with Rust's closure meaning: `func(t) { t.isOpen() }`. No `move`; a literal that escapes takes ownership of its captures.
 
 #### Loop expressions
 
@@ -1851,16 +1834,24 @@ IteratorLoopExpression ->
 <sub>category: expressions · Rust rule `expr.loop.label.syntax`</sub>
 
 ```
-LoopLabel -> LIFETIME_OR_LABEL `:`
+LoopLabel -> IDENTIFIER `:`
 ```
+
+**Changes from Rust:**
+
+- Changed `LoopLabel` (exception 13): No `'`: `outer: for …`.
 
 *`break` expressions*
 
 <sub>category: expressions · Rust rule `expr.loop.break.syntax`</sub>
 
 ```
-BreakExpression -> `break` LIFETIME_OR_LABEL? Expression?
+BreakExpression -> `break` IDENTIFIER? Expression?
 ```
+
+**Changes from Rust:**
+
+- Changed `BreakExpression` (exception 13): No `'`: `break outer`.
 
 *Labeled block expressions*
 
@@ -1875,8 +1866,12 @@ LabelBlockExpression -> BlockExpression
 <sub>category: expressions · Rust rule `expr.loop.continue.syntax`</sub>
 
 ```
-ContinueExpression -> `continue` LIFETIME_OR_LABEL?
+ContinueExpression -> `continue` IDENTIFIER?
 ```
+
+**Changes from Rust:**
+
+- Changed `ContinueExpression` (exception 13): No `'`: `continue outer`.
 
 #### Range expressions
 
@@ -2321,12 +2316,12 @@ Rust: [types/pointer.md](https://doc.rust-lang.org/reference/types/pointer.html)
 <sub>category: types · Rust rule `type.pointer.reference.syntax`</sub>
 
 ```
-ReferenceType -> `&` OriginRef? `mut`? TypeNoBounds
+ReferenceType -> `&` Lifetime? `mut`? TypeNoBounds
 ```
 
 **Changes from Rust:**
 
-- Changed `ReferenceType` (exception 13): `&'a T` → `&[a] T`. After `&`, a bracketed list followed by a type is an origin; otherwise it's a slice type: `&[a] string` versus `&[uint8]`.
+- Changed `ReferenceType` (exception 13): `&'a T` → `&a T`, `&'static T` → `&static T`.
 
 *Raw pointers (`*const` and `*mut`)*
 
@@ -2344,7 +2339,7 @@ Rust: [types/function-pointer.md](https://doc.rust-lang.org/reference/types/func
 
 ```
 BareFunctionType ->
-    ForOrigins? FunctionTypeQualifiers `func`
+    ForLifetimes? FunctionTypeQualifiers `func`
        `(` FunctionParametersMaybeNamedVariadic? `)` BareFunctionReturnType?
 
 FunctionTypeQualifiers ->
@@ -2352,7 +2347,7 @@ FunctionTypeQualifiers ->
     | `extern` Abi?
 
 FunctionValueType ->
-    ForOrigins? `func` `(` MaybeNamedFunctionParameters? `)` BareFunctionReturnType?
+    ForLifetimes? `func` `(` MaybeNamedFunctionParameters? `)` BareFunctionReturnType?
 
 BareFunctionReturnType -> `->` TypeNoBounds
 
@@ -2427,15 +2422,18 @@ Rust: [trait-bounds.md](https://doc.rust-lang.org/reference/trait-bounds.html)
 ```
 Bounds -> Bound ( `+` Bound )* `+`?
 
-Bound -> OriginRef | TraitBound | UseBound
+Bound -> Lifetime | TraitBound | UseBound
 
 TraitBound ->
-      ( `?` | ForOrigins )? TypePath
-    | `(` ( `?` | ForOrigins )? TypePath `)`
+      ( `?` | ForLifetimes )? TypePath
+    | `(` ( `?` | ForLifetimes )? TypePath `)`
 
-OriginRef -> `[` Origin ( `,` Origin )* `]`
+LifetimeBounds -> ( Lifetime `+` )* Lifetime?
 
-Origin -> IDENTIFIER | `static`
+Lifetime ->
+      IDENTIFIER
+    | `static`
+    | `_`
 
 UseBound -> `use` UseBoundGenericArgs
 
@@ -2444,32 +2442,22 @@ UseBoundGenericArgs ->
     | `<` ( UseBoundGenericArg `,`)* UseBoundGenericArg `,`? `>`
 
 UseBoundGenericArg ->
-      IDENTIFIER
+      Lifetime
+    | IDENTIFIER
     | `Self`
 ```
 
 **Changes from Rust:**
 
-- Changed `Bound` (exception 13): `Lifetime` → `OriginRef`: `T: [src]`.
-- Changed `TraitBound` (exception 13): `ForLifetimes` → `ForOrigins`.
-- Removed `LifetimeBounds` (exception 13): Origin bounds are `OriginRef` lists joined by `+`.
-- Removed `Lifetime` (exception 13): Replaced by `OriginRef`.
-- Added `OriginRef` (exception 13): Names the parameters or origins a reference is borrowed from: `&[a, b] string`. Mojo writes `ref [a] T`.
-- Added `Origin` (exception 13): A function parameter, an origin parameter, or `static` (Rust's `'static`). Rust's `'_` is written by leaving the origin out.
-- Changed `UseBoundGenericArg` (exception 13): Origin parameters are identifiers, so `Lifetime` goes.
+- Changed `Lifetime` (exception 13): Removes `'` from lifetimes: `a`, `static`, `_`.
 
 *Higher-ranked trait bounds*
 
 <sub>category: miscellaneous · Rust rule `bound.higher-ranked.syntax`</sub>
 
 ```
-ForOrigins -> `for` GenericParams
+ForLifetimes -> `for` GenericParams
 ```
-
-**Changes from Rust:**
-
-- Removed `ForLifetimes` (exception 13): Replaced by `ForOrigins`.
-- Added `ForOrigins` (exception 13): Rust's `for<'a>` is `for<a: Origin>`.
 
 ## Names
 
@@ -2517,7 +2505,7 @@ TypeList ->
     ( Type `,` )* Type `,`?
 
 GenericArg ->
-    Type | OriginRef | GenericArgsConst | GenericArgsBinding | GenericArgsBounds
+    Lifetime | Type | GenericArgsConst | GenericArgsBinding | GenericArgsBounds
 
 GenericArgsConst ->
       BlockExpression
@@ -2537,7 +2525,6 @@ GenericArgsBounds ->
 - Changed `PathInExpression` (exception 7): `.` separates segments. No leading `::`.
 - Changed `PathExprSegment` (exception 7): No `::<…>` generic arguments in expressions. Explicit types come from annotations (open question 1 in the proposal).
 - Changed `PathIdentSegment` (exceptions 1, 12): No `super`, `crate` or `$crate`.
-- Changed `GenericArg` (exception 13): `Lifetime` → `OriginRef`.
 
 *Qualified paths*
 
@@ -2665,8 +2652,8 @@ DualDirSpec ->
 - Added `AsmExpression` (exceptions 11, 12): Rust's `asm!` and `naked_asm!` as built-ins.
 - Added `GlobalAsm` (exceptions 11, 12): Rust's `global_asm!` as a built-in item.
 - Changed `FormatString` (exception 12): No macro invocations (Rust allows `concat!(…)` here).
-- Changed `ClobberAbi` (exception 11): Go casing.
-- Changed `AsmOption` (exception 11): Go casing.
+- Changed `ClobberAbi` (exception 11): `camelCase`.
+- Changed `AsmOption` (exception 11): `camelCase`.
 
 ## Removed from Rust
 
@@ -2685,12 +2672,9 @@ Every Rust production with no counterpart here.
 | `DeriveMacroAttributes` | Procedural macros | No user macros (exception 12). |
 | `DeriveMacroName` | Procedural macros | No user macros (exception 12). |
 | `ExternCrate` | Extern crates | Packages are imported by path; there is no `extern crate` (exception 1). |
-| `ForLifetimes` | Trait and lifetime bounds | Replaced by `ForOrigins`. |
 | `InnerAttribute` | Attributes | No inner attributes. Attributes on the `package` declaration apply to the whole package. |
-| `Lifetime` | Trait and lifetime bounds | Replaced by `OriginRef`. |
-| `LifetimeBounds` | Trait and lifetime bounds | Origin bounds are `OriginRef` lists joined by `+`. |
-| `LifetimeParam` | Generic parameters | Replaced by `OriginParam`. |
-| `LifetimeWhereClauseItem` | Generic parameters | Replaced by `OriginWhereClauseItem`. |
+| `LIFETIME_OR_LABEL` | Tokens | Lifetimes and loop labels have no `'` (exception 13). |
+| `LIFETIME_TOKEN` | Tokens | Lifetimes and loop labels have no `'` (exception 13). |
 | `MacroFragSpec` | Macros by example | No user macros (exception 12). |
 | `MacroInvocation` | Token trees | No user macros. Built-ins are ordinary calls (`println(…)`) or `vec[…]`. |
 | `MacroInvocationSemi` | Token trees | No user macros. |
@@ -2707,6 +2691,9 @@ Every Rust production with no counterpart here.
 | `Module` | Modules | Folders are packages; there is no `mod` (exception 1). |
 | `ObsoleteRangePattern` | Patterns | `a...b` patterns are invalid since Rust 2021. |
 | `ProcMacroDeriveAttribute` | Procedural macros | No user macros (exception 12). |
+| `RAW_LIFETIME` | Tokens | Lifetimes and loop labels have no `'` (exception 13). |
+| `RESERVED_RAW_LIFETIME` | Tokens | Lifetimes and loop labels have no `'` (exception 13). |
+| `RESERVED_TOKEN_LIFETIME` | Tokens | Lifetimes and loop labels have no `'` (exception 13). |
 | `UseDeclaration` | Use declarations | Packages are imported with `import`; there is no `use` (exception 1). |
 | `UseTree` | Use declarations | Packages are imported with `import`; there is no `use` (exception 1). |
 
@@ -2813,7 +2800,7 @@ Every Rust production with no counterpart here.
 - `FLOAT_EXPONENT`: [Tokens](#tokens)
 - `FLOAT_LITERAL`: [Tokens](#tokens)
 - `FormatString`: [Inline assembly](#inline-assembly)
-- `ForOrigins`: [Trait and lifetime bounds](#trait-and-lifetime-bounds)
+- `ForLifetimes`: [Trait and lifetime bounds](#trait-and-lifetime-bounds)
 - `Function`: [Functions](#functions)
 - `FunctionLiteral`: [Function literals](#function-literals)
 - `FunctionParam`: [Functions](#functions)
@@ -2844,6 +2831,7 @@ Every Rust production with no counterpart here.
 - `Implementation`: [Implementations](#implementations)
 - `ImplTraitType`: [Impl trait type](#impl-trait-type)
 - `ImplTraitTypeOneBound`: [Impl trait type](#impl-trait-type)
+- `ImportClause`: [Source files and packages](#source-files-and-packages)
 - `ImportDeclaration`: [Source files and packages](#source-files-and-packages)
 - `ImportSpec`: [Source files and packages](#source-files-and-packages)
 - `IndexExpression`: [Array and index expressions](#array-and-index-expressions)
@@ -2864,8 +2852,10 @@ Every Rust production with no counterpart here.
 - `LetChainCondition`: [If expressions](#if-expressions)
 - `LetStatement`: [Statements](#statements)
 - `LF`: [Whitespace](#whitespace)
-- `LIFETIME_OR_LABEL`: [Tokens](#tokens)
-- `LIFETIME_TOKEN`: [Tokens](#tokens)
+- `Lifetime`: [Trait and lifetime bounds](#trait-and-lifetime-bounds)
+- `LifetimeBounds`: [Trait and lifetime bounds](#trait-and-lifetime-bounds)
+- `LifetimeParam`: [Generic parameters](#generic-parameters)
+- `LifetimeWhereClauseItem`: [Generic parameters](#generic-parameters)
 - `LINE_COMMENT`: [Comments](#comments)
 - `LINE_DOC_COMMENT_CONTENT`: [Comments](#comments)
 - `LINE_END`: [Whitespace](#whitespace)
@@ -2895,6 +2885,7 @@ Every Rust production with no counterpart here.
 - `MetaWord`: [Attributes](#attributes)
 - `MethodCallExpression`: [Method call expressions](#method-call-expressions)
 - `ModernRangePattern`: [Patterns](#patterns)
+- `NamedImports`: [Source files and packages](#source-files-and-packages)
 - `NegationExpression`: [Operator expressions](#operator-expressions)
 - `NESTED_BLOCK_DOC_COMMENT`: [Comments](#comments)
 - `NeverType`: [Never type](#never-type)
@@ -2904,10 +2895,6 @@ Every Rust production with no counterpart here.
 - `OCT_LITERAL`: [Tokens](#tokens)
 - `OperatorExpression`: [Operator expressions](#operator-expressions)
 - `OptimizeAttribute`: [Code generation](#code-generation)
-- `Origin`: [Trait and lifetime bounds](#trait-and-lifetime-bounds)
-- `OriginParam`: [Generic parameters](#generic-parameters)
-- `OriginRef`: [Trait and lifetime bounds](#trait-and-lifetime-bounds)
-- `OriginWhereClauseItem`: [Generic parameters](#generic-parameters)
 - `OUTER_BLOCK_DOC`: [Comments](#comments)
 - `OUTER_LINE_DOC`: [Comments](#comments)
 - `OuterAttribute`: [Attributes](#attributes)
@@ -2948,7 +2935,6 @@ Every Rust production with no counterpart here.
 - `RAW_C_STRING_CONTENT_HASHED`: [Tokens](#tokens)
 - `RAW_C_STRING_LITERAL`: [Tokens](#tokens)
 - `RAW_IDENTIFIER`: [Identifiers](#identifiers)
-- `RAW_LIFETIME`: [Tokens](#tokens)
 - `RAW_STRING_CONTENT`: [Tokens](#tokens)
 - `RAW_STRING_CONTENT_HASHED`: [Tokens](#tokens)
 - `RAW_STRING_LITERAL`: [Tokens](#tokens)
@@ -2964,10 +2950,8 @@ Every Rust production with no counterpart here.
 - `RESERVED_KEYWORDS`: [Keywords](#keywords)
 - `RESERVED_POUNDS`: [Tokens](#tokens)
 - `RESERVED_RAW_IDENTIFIER`: [Identifiers](#identifiers)
-- `RESERVED_RAW_LIFETIME`: [Tokens](#tokens)
 - `RESERVED_TOKEN`: [Tokens](#tokens)
 - `RESERVED_TOKEN_DOUBLE_QUOTE`: [Tokens](#tokens)
-- `RESERVED_TOKEN_LIFETIME`: [Tokens](#tokens)
 - `RESERVED_TOKEN_POUND`: [Tokens](#tokens)
 - `RESERVED_TOKEN_SINGLE_QUOTE`: [Tokens](#tokens)
 - `RestPattern`: [Patterns](#patterns)

@@ -74,8 +74,8 @@ pub(crate) struct ModuleData {
 
 #[derive(Default)]
 pub(crate) struct FileScope {
-    /// Bound name → the package it names (or `Res::Err` if the import failed).
-    pub imports: FxIndexMap<Symbol, (Res, Span)>,
+    /// (bound name, namespace) → what it names (or `Res::Err` if the import failed).
+    pub imports: FxIndexMap<(Symbol, Namespace), (Res, Span)>,
 }
 
 /// What resolution found, for lowering and later passes.

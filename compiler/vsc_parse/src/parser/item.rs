@@ -501,17 +501,23 @@ impl<'a> Parser<'a> {
             return Ok(Some(mk_param(self, mode, self_span, TyKind::ImplicitSelf)));
         }
 
-        // `&self` and friends.
+        // `&self` and friends (`&a self`, `&a mut self`, `&static self`, `&_ self`, `&[a] self`).
         if self.check(TokenKind::And) {
             let n1 = self.look_ahead(1);
-            let (has_origin, after_origin) = if n1.kind == TokenKind::OpenBracket {
+            let (has_bracket_origin, has_ident_origin, after_origin) = if n1.kind == TokenKind::OpenBracket {
                 let open = self.pos + 1;
                 match self.buf.partner(open) {
-                    Some(close) => (true, close + 1 - self.pos),
-                    None => (false, 1),
+                    Some(close) => (true, false, close + 1 - self.pos),
+                    None => (false, false, 1),
                 }
+            } else if n1.lifetime().is_some()
+                || n1.is_keyword(kw::Static)
+                || n1.is_keyword(kw::Underscore)
+                || (n1.is_non_keyword_ident() && !n1.is_keyword(kw::Mut) && !is_self(n1))
+            {
+                (false, true, 2)
             } else {
-                (false, 1)
+                (false, false, 1)
             };
             let t = self.look_ahead(after_origin);
             let is_ref_self = is_self(t) || (t.is_keyword(kw::Mut) && is_self(self.look_ahead(after_origin + 1)));
@@ -519,7 +525,41 @@ impl<'a> Parser<'a> {
                 return Ok(None);
             }
             self.bump(); // `&`
-            let origin = if has_origin { Some(self.parse_origin_ref()?) } else { None };
+            let origin = if has_bracket_origin {
+                Some(self.parse_origin_ref()?)
+            } else if let Some(label) = self.token.lifetime() {
+                self.bump();
+                let name = label.name.as_str().trim_start_matches('\'');
+                self.dcx()
+                    .struct_span_err(label.span, "lifetimes have no `'` in Vertex")
+                    .with_span_suggestion(
+                        label.span,
+                        "remove the leading `'`",
+                        name.to_string(),
+                        Applicability::MachineApplicable,
+                    )
+                    .emit();
+                if name == "_" {
+                    None
+                } else {
+                    Some(vsc_ast::OriginRef {
+                        origins: vec![Ident::new(vsc_span::Symbol::intern(name), label.span)],
+                        span: label.span,
+                    })
+                }
+            } else if has_ident_origin {
+                if self.eat_keyword(kw::Underscore) {
+                    None
+                } else if self.eat_keyword(kw::Static) {
+                    let span = self.prev_token.span;
+                    Some(vsc_ast::OriginRef { origins: vec![Ident::new(kw::Static, span)], span })
+                } else {
+                    let ident = self.parse_ident()?;
+                    Some(vsc_ast::OriginRef { origins: vec![ident], span: ident.span })
+                }
+            } else {
+                None
+            };
             let mutbl = if self.eat_keyword(kw::Mut) { Mutability::Mut } else { Mutability::Not };
             let self_span = self.token.span;
             self.bump(); // `self`

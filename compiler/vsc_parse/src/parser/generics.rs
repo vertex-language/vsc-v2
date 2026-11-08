@@ -43,30 +43,29 @@ impl<'a> Parser<'a> {
         let lo = self.token.span;
 
         if let Some(label) = self.token.lifetime() {
-            // Rust's `'a`: report it and read it as an origin parameter.
+            // Rust's `'a`: report it and read it as a lifetime parameter.
             self.bump();
             let name = label.name.as_str().trim_start_matches('\'').to_string();
             self.dcx()
-                .struct_span_err(label.span, "Vertex declares origins, not lifetimes")
+                .struct_span_err(label.span, "lifetimes have no `'` in Vertex")
                 .with_span_suggestion(
                     label.span,
-                    "declare an origin parameter",
-                    format!("{name}: Origin"),
-                    Applicability::MaybeIncorrect,
+                    "remove the leading `'`",
+                    name.clone(),
+                    Applicability::MachineApplicable,
                 )
                 .emit();
             let mut bounds = Vec::new();
             if self.eat(TokenKind::Colon) {
-                while let Some(l) = self.token.lifetime() {
-                    self.bump();
-                    let n = l.name.as_str().trim_start_matches('\'');
-                    bounds.push(GenericBound::Outlives(OriginRef {
-                        origins: vec![Ident::new(Symbol::intern(n), l.span)],
-                        span: l.span,
-                    }));
-                    if !self.eat(TokenKind::Plus) {
+                loop {
+                    if !self.can_begin_bound() {
                         break;
                     }
+                    bounds.push(self.parse_lifetime_bound()?);
+                    if !self.check(TokenKind::Plus) || self.line_ended() {
+                        break;
+                    }
+                    self.bump();
                 }
             }
             return Ok(GenericParam {
@@ -111,15 +110,31 @@ impl<'a> Parser<'a> {
         }
 
         let ident = self.parse_ident()?;
+        let is_lifetime = ident.name.as_str().starts_with(|c: char| c.is_ascii_lowercase());
         let mut bounds = Vec::new();
-        let mut kind = GenericParamKind::Type { default: None };
+        let mut kind = if is_lifetime {
+            GenericParamKind::Origin
+        } else {
+            GenericParamKind::Type { default: None }
+        };
         if self.eat(TokenKind::Colon) {
             if self.token.is_keyword(sym::Origin) {
-                // `src: Origin + [b]` (exception 13).
+                // Legacy `src: Origin + [b]` syntax.
                 self.bump();
                 kind = GenericParamKind::Origin;
                 while self.eat(TokenKind::Plus) {
-                    bounds.push(GenericBound::Outlives(self.parse_origin_ref()?));
+                    bounds.push(self.parse_lifetime_bound()?);
+                }
+            } else if matches!(kind, GenericParamKind::Origin) {
+                loop {
+                    if !self.can_begin_bound() {
+                        break;
+                    }
+                    bounds.push(self.parse_lifetime_bound()?);
+                    if !self.check(TokenKind::Plus) || self.line_ended() {
+                        break;
+                    }
+                    self.bump();
                 }
             } else {
                 bounds = self.parse_generic_bounds()?;
@@ -131,6 +146,35 @@ impl<'a> Parser<'a> {
         Ok(GenericParam { id: DUMMY_NODE_ID, ident, attrs, bounds, kind, span: lo.to(self.prev_token.span) })
     }
 
+    fn parse_lifetime_bound(&mut self) -> PResult<'a, GenericBound> {
+        if self.check(TokenKind::OpenBracket) {
+            return Ok(GenericBound::Outlives(self.parse_origin_ref()?));
+        }
+        if let Some(label) = self.token.lifetime() {
+            self.bump();
+            let name = label.name.as_str().trim_start_matches('\'');
+            self.dcx()
+                .struct_span_err(label.span, "lifetimes have no `'` in Vertex")
+                .with_span_suggestion(
+                    label.span,
+                    "remove the leading `'`",
+                    name.to_string(),
+                    Applicability::MachineApplicable,
+                )
+                .emit();
+            return Ok(GenericBound::Outlives(OriginRef {
+                origins: vec![Ident::new(Symbol::intern(name), label.span)],
+                span: label.span,
+            }));
+        }
+        if self.eat_keyword(kw::Static) {
+            let span = self.prev_token.span;
+            return Ok(GenericBound::Outlives(OriginRef { origins: vec![Ident::new(kw::Static, span)], span }));
+        }
+        let ident = self.parse_ident()?;
+        Ok(GenericBound::Outlives(OriginRef { origins: vec![ident], span: ident.span }))
+    }
+
     fn can_begin_bound(&self) -> bool {
         self.check_path_segment_ident()
             || self.check(TokenKind::Question)
@@ -139,10 +183,11 @@ impl<'a> Parser<'a> {
             || self.check(TokenKind::Lt)
             || self.check_keyword(kw::For)
             || self.check_keyword(kw::Use)
+            || self.check_keyword(kw::Static)
             || self.token.lifetime().is_some()
     }
 
-    /// `A + B + [a]`. An empty list is allowed (`T:`).
+    /// `A + B + a`. An empty list is allowed (`T:`).
     pub fn parse_generic_bounds(&mut self) -> PResult<'a, GenericBounds> {
         let mut bounds = Vec::new();
         loop {
@@ -167,18 +212,35 @@ impl<'a> Parser<'a> {
             self.bump();
             let name = label.name.as_str().trim_start_matches('\'');
             self.dcx()
-                .struct_span_err(label.span, "Vertex has no lifetimes")
+                .struct_span_err(label.span, "lifetimes have no `'` in Vertex")
                 .with_span_suggestion(
                     label.span,
-                    "write an origin bound",
-                    format!("[{name}]"),
-                    Applicability::MaybeIncorrect,
+                    "remove the leading `'`",
+                    name.to_string(),
+                    Applicability::MachineApplicable,
                 )
                 .emit();
             return Ok(GenericBound::Outlives(OriginRef {
                 origins: vec![Ident::new(Symbol::intern(name), label.span)],
                 span: label.span,
             }));
+        }
+        if self.eat_keyword(kw::Static) {
+            let span = self.prev_token.span;
+            return Ok(GenericBound::Outlives(OriginRef { origins: vec![Ident::new(kw::Static, span)], span }));
+        }
+        if matches!(
+            self.token.ident(),
+            Some((ident, _))
+                if !ident.is_reserved()
+                    && !ident.name.is_builtin_name()
+                    && ident.name.as_str().starts_with(|c: char| c.is_ascii_lowercase())
+        ) && !matches!(
+            self.look_ahead(1).kind,
+            TokenKind::Dot | TokenKind::Colon | TokenKind::Lt | TokenKind::Shl | TokenKind::OpenParen
+        ) {
+            let ident = self.parse_ident()?;
+            return Ok(GenericBound::Outlives(OriginRef { origins: vec![ident], span: ident.span }));
         }
         if self.eat_keyword(kw::Use) {
             // `use<T, src, Self>`: the parameters an `impl Trait` captures.

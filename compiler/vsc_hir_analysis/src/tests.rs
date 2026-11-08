@@ -136,7 +136,7 @@ fn exception_13_elision_and_naming_share_the_input_region() {
             }
             assert_eq!(region(sig.output()), region(sig.inputs()[input]), "{name}");
         }
-        assert_eq!(tcx.fn_sig_to_string(tcx.fn_sig(def_named(tcx, "named"))), "func(&int64, &[y] int64) -> &[y] int64");
+        assert_eq!(tcx.fn_sig_to_string(tcx.fn_sig(def_named(tcx, "named"))), "func(&int64, &y int64) -> &y int64");
     });
 }
 

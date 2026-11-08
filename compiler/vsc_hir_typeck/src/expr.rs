@@ -87,8 +87,15 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
             }
             hir::ExprKind::Binary(op, a, b) => self.check_binop(e, op.node, a, b, false),
             hir::ExprKind::AssignOp(op, a, b) => {
-                self.check_place(a);
+                // The left side is checked once, by the operator; checking
+                // it again would record its adjustments twice.
                 self.check_binop(e, op.node, a, b, true);
+                if !is_place(a) {
+                    self.err(a.span, "invalid left-hand side of assignment")
+                        .with_code(ErrCode(67))
+                        .with_span_label(a.span, "cannot assign to this expression")
+                        .emit();
+                }
                 tcx.types.unit
             }
             hir::ExprKind::Unary(op, x) => self.check_unop(e, *op, x, expected),

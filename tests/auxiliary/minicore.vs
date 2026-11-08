@@ -1,6 +1,7 @@
 // The lang items tests need, until vsc-v2 can build `library/` (rustc's
 // tests/auxiliary/minicore.rs). A test with `//@ add-core-stubs` gets this
-// file in its package. Bodies are stubs: only their types matter.
+// file in its package. Functions marked `@intrinsic` are carried out by the
+// MIR interpreter; their bodies are stubs. The rest is ordinary code.
 
 package main
 
@@ -74,20 +75,32 @@ implement<I: Iterator> IntoIterator for I {
 
 implement<T> Iterator for Range<T> {
     type Item = T
+    @intrinsic("range_next")
     func Next(&mut self) -> Option<T> { loop {} }
 }
 
-public struct SliceIter<a: Origin, T> { s: &[a] [T] }
+@intrinsic("slice_len")
+public func sliceLen<T>(s: &[T]) -> uint { loop {} }
+
+public struct SliceIter<a: Origin, T> { s: &[a] [T]; i: uint }
 
 implement<a: Origin, T> Iterator for SliceIter<a, T> {
     type Item = &[a] T
-    func Next(&mut self) -> Option<&[a] T> { loop {} }
+    func Next(&mut self) -> Option<&[a] T> {
+        if self.i < sliceLen(self.s) {
+            let x = &self.s[self.i]
+            self.i += 1
+            Option.Some(x)
+        } else {
+            Option.None
+        }
+    }
 }
 
 implement<a: Origin, T> IntoIterator for &[a] [T] {
     type Item = &[a] T
     type IntoIter = SliceIter<a, T>
-    func IntoIter(self) -> SliceIter<a, T> { loop {} }
+    func IntoIter(self) -> SliceIter<a, T> { SliceIter { s: self, i: 0 } }
 }
 
 // `?`
@@ -112,7 +125,12 @@ public trait Try {
 implement<T> Try for Option<T> {
     type Output = T
     type Residual = Option<Infallible>
-    func Branch(self) -> ControlFlow<Option<Infallible>, T> { loop {} }
+    func Branch(self) -> ControlFlow<Option<Infallible>, T> {
+        match self {
+            Option.Some(v) => ControlFlow.Continue(v)
+            Option.None => ControlFlow.Break(Option.None)
+        }
+    }
 }
 
 implement<T> FromResidual<Option<Infallible>> for Option<T> {
@@ -124,8 +142,11 @@ implement<T> FromResidual<Option<Infallible>> for Option<T> {
 public struct Vec<T> { ptr: *mut T; len: uint }
 
 implement<T> Vec<T> {
-    public func Len(&self) -> uint { self.len }
+    @intrinsic("vec_len")
+    public func Len(&self) -> uint { loop {} }
+    @intrinsic("vec_push")
     public func Push(&mut self, value: T) {}
+    @intrinsic("vec_pop")
     public func Pop(&mut self) -> Option<T> { loop {} }
 }
 
@@ -144,8 +165,11 @@ public func vecFromElem<T>(elem: T, n: uint) -> Vec<T> { loop {} }
 public struct FormatArguments { pieces: uint }
 
 implement FormatArguments {
+    @intrinsic("format_new_const")
     public func NewConst(pieces: &[&string]) -> FormatArguments { loop {} }
+    @intrinsic("format_new_v1")
     public func NewV1(pieces: &[&string], args: &[FormatArgument]) -> FormatArguments { loop {} }
+    @intrinsic("format_new_v1_formatted")
     public func NewV1Formatted(pieces: &[&string], args: &[FormatArgument], placeholders: &[FormatPlaceholder]) -> FormatArguments { loop {} }
 }
 
@@ -153,15 +177,25 @@ implement FormatArguments {
 public struct FormatArgument { value: *const uint8 }
 
 implement FormatArgument {
+    @intrinsic("format_arg_display")
     public func NewDisplay<T>(x: &T) -> FormatArgument { loop {} }
+    @intrinsic("format_arg_debug")
     public func NewDebug<T>(x: &T) -> FormatArgument { loop {} }
+    @intrinsic("format_arg_lower_exp")
     public func NewLowerExp<T>(x: &T) -> FormatArgument { loop {} }
+    @intrinsic("format_arg_upper_exp")
     public func NewUpperExp<T>(x: &T) -> FormatArgument { loop {} }
+    @intrinsic("format_arg_octal")
     public func NewOctal<T>(x: &T) -> FormatArgument { loop {} }
+    @intrinsic("format_arg_pointer")
     public func NewPointer<T>(x: &T) -> FormatArgument { loop {} }
+    @intrinsic("format_arg_binary")
     public func NewBinary<T>(x: &T) -> FormatArgument { loop {} }
+    @intrinsic("format_arg_lower_hex")
     public func NewLowerHex<T>(x: &T) -> FormatArgument { loop {} }
+    @intrinsic("format_arg_upper_hex")
     public func NewUpperHex<T>(x: &T) -> FormatArgument { loop {} }
+    @intrinsic("format_arg_usize")
     public func FromUsize(x: &uint) -> FormatArgument { loop {} }
 }
 
@@ -169,6 +203,7 @@ implement FormatArgument {
 public struct FormatPlaceholder { position: uint }
 
 implement FormatPlaceholder {
+    @intrinsic("format_placeholder_new")
     public func New(position: uint, fill: char, align: FormatAlignment, flags: uint32, precision: FormatCount, width: FormatCount) -> FormatPlaceholder { loop {} }
 }
 

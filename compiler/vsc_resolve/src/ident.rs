@@ -11,8 +11,8 @@ impl Resolver<'_> {
         self.modules.get(&module)?.bindings.get(&(name, ns)).copied()
     }
 
-    pub(crate) fn import_res(&self, package: LocalDefId, file: usize, name: Symbol) -> Option<Res> {
-        self.modules.get(&package)?.files.get(file)?.imports.get(&name).map(|&(res, _)| res)
+    pub(crate) fn import_res(&self, package: LocalDefId, file: usize, name: Symbol, ns: Namespace) -> Option<Res> {
+        self.modules.get(&package)?.files.get(file)?.imports.get(&(name, ns)).map(|&(res, _)| res)
     }
 }
 

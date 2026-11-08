@@ -58,8 +58,8 @@ impl<'tcx> TyCtxt<'tcx> {
             Clause::Projection(alias, term) => {
                 format!("{} == {}", self.ty_to_string(self.mk_ty(TyKind::Alias(alias))), self.ty_to_string(term))
             }
-            Clause::TypeOutlives(t, r) => format!("{}: [{}]", self.ty_to_string(t), self.region_to_string(r)),
-            Clause::RegionOutlives(a, b) => format!("{}: [{}]", self.region_to_string(a), self.region_to_string(b)),
+            Clause::TypeOutlives(t, r) => format!("{}: {}", self.ty_to_string(t), self.region_to_string(r)),
+            Clause::RegionOutlives(a, b) => format!("{}: {}", self.region_to_string(a), self.region_to_string(b)),
         }
     }
 
@@ -74,7 +74,7 @@ impl<'tcx> TyCtxt<'tcx> {
                 }
                 GenericArg::Region(r) => {
                     if !matches!(r.kind(), RegionKind::ReErased) {
-                        shown.push(format!("[{}]", self.region_str(*r, b)));
+                        shown.push(self.region_str(*r, b));
                     }
                 }
                 GenericArg::Const(c) => shown.push(self.const_to_string(*c)),
@@ -173,9 +173,8 @@ impl<'tcx> TyCtxt<'tcx> {
                 s.push('&');
                 let name = self.region_str(r, b);
                 if name != "_" {
-                    s.push('[');
                     s.push_str(&name);
-                    s.push_str("] ");
+                    s.push(' ');
                 }
                 if m.is_mut() {
                     s.push_str("mut ");
@@ -213,7 +212,7 @@ impl<'tcx> TyCtxt<'tcx> {
                     }
                 }
                 if !matches!(r.kind(), RegionKind::ReErased) {
-                    s.push_str(&format!(" + [{}]", self.region_str(r, b)));
+                    s.push_str(&format!(" + {}", self.region_str(r, b)));
                 }
             }
             TyKind::Closure(..) => s.push_str("{function literal}"),

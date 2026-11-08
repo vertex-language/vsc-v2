@@ -68,12 +68,26 @@ pub struct Parser<'a> {
     /// Whether line feeds end things here (exception 10, rule 1).
     nl: bool,
     restrictions: Restrictions,
+    /// Labels declared so far in the file, for disambiguating `break label`.
+    pub(super) labels: Vec<Symbol>,
+    /// Whether the parser is inside a `for` or `while` loop body.
+    pub(super) in_for_or_while: bool,
 }
 
 impl<'a> Parser<'a> {
     pub(crate) fn new(psess: &'a ParseSess, buf: TokenBuffer) -> Parser<'a> {
         let token = buf.tokens[0];
-        Parser { psess, buf, pos: 0, token, prev_token: Token::dummy(), nl: true, restrictions: Restrictions::NONE }
+        Parser {
+            psess,
+            buf,
+            pos: 0,
+            token,
+            prev_token: Token::dummy(),
+            nl: true,
+            restrictions: Restrictions::NONE,
+            labels: Vec::new(),
+            in_for_or_while: false,
+        }
     }
 
     pub fn dcx(&self) -> &'a vsc_errors::DiagCtxt {

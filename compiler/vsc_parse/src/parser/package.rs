@@ -1,7 +1,7 @@
 //! Source files (exception 1): `package name`, then imports, then items.
 
-use vsc_ast::token::{IdentIsRaw, TokenKind};
-use vsc_ast::{Import, PackageDecl, SourceFile};
+use vsc_ast::token::{Delimiter, IdentIsRaw, TokenKind};
+use vsc_ast::{Import, ImportItem, PackageDecl, SourceFile};
 use vsc_span::{Ident, kw};
 
 use super::{PResult, Parser};
@@ -42,8 +42,8 @@ impl<'a> Parser<'a> {
                 break;
             }
             match self.parse_import_decl() {
-                Ok(mut specs) => {
-                    imports.append(&mut specs);
+                Ok(spec) => {
+                    imports.push(spec);
                     if let Err(err) = self.expect_terminator("imports") {
                         err.emit();
                         self.recover_stmt();
@@ -80,39 +80,25 @@ impl<'a> Parser<'a> {
         Ok(PackageDecl { attrs, name, span })
     }
 
-    /// `import "path"`, `import name "path"`, or `import ( … )`.
-    pub fn parse_import_decl(&mut self) -> PResult<'a, Vec<Import>> {
+    /// `import "path"`, `import name from "path"`, `import { … } from "path"`,
+    /// or `import name, { … } from "path"`.
+    pub fn parse_import_decl(&mut self) -> PResult<'a, Import> {
         let lo = self.token.span;
         self.expect_keyword(kw::Import)?;
-        if self.check(TokenKind::OpenParen) {
-            let open_index = self.pos;
-            self.bump();
-            let specs = self.with_nl(false, |this| -> PResult<'a, _> {
-                let mut specs = Vec::new();
-                loop {
-                    while this.eat(TokenKind::Semi) || this.eat(TokenKind::Comma) {}
-                    if this.check(TokenKind::CloseParen) {
-                        break;
-                    }
-                    match this.parse_import_spec(this.token.span) {
-                        Ok(spec) => specs.push(spec),
-                        Err(err) => {
-                            err.emit();
-                            this.jump_to_close_of(open_index);
-                            break;
-                        }
-                    }
-                }
-                this.expect(TokenKind::CloseParen)?;
-                Ok(specs)
-            })?;
-            return Ok(specs);
-        }
-        Ok(vec![self.parse_import_spec(lo)?])
-    }
 
-    /// `"path"` or `name "path"`.
-    fn parse_import_spec(&mut self, lo: vsc_span::Span) -> PResult<'a, Import> {
+        if let Some(path) = self.parse_str_lit() {
+            if path.symbol.as_str().is_empty() {
+                self.dcx().span_err(path.span, "import path is empty");
+            }
+            return Ok(Import {
+                rename: None,
+                items: None,
+                path: path.symbol,
+                path_span: path.span,
+                span: lo.to(self.prev_token.span),
+            });
+        }
+
         let rename = match self.token.ident() {
             Some((ident, IdentIsRaw::Yes)) => {
                 self.bump();
@@ -124,6 +110,24 @@ impl<'a> Parser<'a> {
             }
             _ => None,
         };
+
+        let items = if rename.is_some() && self.eat(TokenKind::Comma) {
+            Some(self.parse_named_imports()?)
+        } else if rename.is_none() && self.check(TokenKind::OpenBrace) {
+            Some(self.parse_named_imports()?)
+        } else {
+            None
+        };
+
+        if rename.is_none() && items.is_none() {
+            let mut err = self.expected_found("an import path string");
+            if self.check_path_segment_ident() || self.check(TokenKind::Dot) {
+                err.help("import paths are strings: `import \"std/fs\"`");
+            }
+            return Err(err);
+        }
+
+        self.expect_keyword(kw::From)?;
         let Some(path) = self.parse_str_lit() else {
             let mut err = self.expected_found("an import path string");
             if self.check_path_segment_ident() || self.check(TokenKind::Dot) {
@@ -134,6 +138,26 @@ impl<'a> Parser<'a> {
         if path.symbol.as_str().is_empty() {
             self.dcx().span_err(path.span, "import path is empty");
         }
-        Ok(Import { rename, path: path.symbol, path_span: path.span, span: lo.to(self.prev_token.span) })
+        Ok(Import {
+            rename,
+            items,
+            path: path.symbol,
+            path_span: path.span,
+            span: lo.to(self.prev_token.span),
+        })
+    }
+
+    fn parse_named_imports(&mut self) -> PResult<'a, Vec<ImportItem>> {
+        let (items, _) = self.parse_delim_comma_seq(Delimiter::Brace, |this| {
+            let lo = this.token.span;
+            let ident = this.parse_ident()?;
+            let rename = if this.eat_keyword(kw::As) {
+                Some(this.parse_ident_or_underscore()?)
+            } else {
+                None
+            };
+            Ok(ImportItem { ident, rename, span: lo.to(this.prev_token.span) })
+        })?;
+        Ok(items)
     }
 }

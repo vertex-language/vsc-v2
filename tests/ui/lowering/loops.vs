@@ -7,9 +7,9 @@ package main
 
 func main(xs: &[int64]) {
     var total = 0
-    'outer: for x in xs {
+    outer: for x in xs {
         for y in xs {
-            if *y > 3 { continue 'outer }
+            if *y > 3 { continue outer }
             total += *x * *y
         }
     }
@@ -20,8 +20,8 @@ func main(xs: &[int64]) {
         if total == 0 { break true }
         total -= 1
     }
-    let v = 'block: {
-        if found { break 'block 1 }
+    let v = block: {
+        if found { break block 1 }
         2
     }
 }

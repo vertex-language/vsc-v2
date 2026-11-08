@@ -78,7 +78,7 @@ fn generics(tcx: TyCtxt<'_>, def: DefId) -> String {
         .iter()
         .filter(|p| !matches!(p.kind, GenericParamDefKind::Type { synthetic: true, .. } if p.name == vsc_span::kw::SelfUpper))
         .map(|p| match p.kind {
-            GenericParamDefKind::Origin => format!("{}: Origin", p.name),
+            GenericParamDefKind::Origin => p.name.to_string(),
             GenericParamDefKind::Type { .. } => p.name.to_string(),
             GenericParamDefKind::Const { .. } => format!("const {}: {}", p.name, tcx.ty_to_string(tcx.type_of(p.def_id))),
         })

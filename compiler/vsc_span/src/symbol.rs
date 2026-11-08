@@ -115,6 +115,7 @@ symbols! {
         Virtual: "virtual",
         Yield: "yield",
         // Weak keywords (grammar: WEAK_KEYWORDS).
+        From: "from",
         Raw: "raw",
         Safe: "safe",
         Union: "union",
@@ -137,7 +138,6 @@ symbols! {
         nakedAsm,
         globalAsm,
         never,
-        Origin,
         cstring,
         c_char,
         c_schar,
@@ -154,6 +154,7 @@ symbols! {
         c_double,
         c_void,
         // End of built-in names.
+        Origin,
 
         // Primitive type names (exception 2).
         bool,
@@ -290,7 +291,7 @@ impl Symbol {
     /// A keyword only in some positions (`union`, `safe`, `raw`).
     #[inline]
     pub fn is_weak_keyword(self) -> bool {
-        kw::Raw.0 <= self.0 && self.0 <= kw::Union.0
+        kw::From.0 <= self.0 && self.0 <= kw::Union.0
     }
 
     /// Strict or reserved: not usable as a plain identifier.

@@ -3,8 +3,8 @@
 func outer<T>(x: int64) {
     func inner() -> int64 { x } //~ ERROR can't capture dynamic environment in a function item
     func generic(v: T) {} //~ ERROR can't use generic parameters from outer item
-    'a: loop {
-        break 'b //~ ERROR use of undeclared label `'b`
+    a: loop {
+        break b //~ ERROR use of undeclared label `b`
     }
 }
 

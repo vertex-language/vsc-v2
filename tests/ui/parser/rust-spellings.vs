@@ -18,6 +18,6 @@ pub fn main() {
 struct Point { x: float64, y: float64 } //~ ERROR struct fields are separated by line breaks, not `,`
 
 func longest<'a>(a: &'a string) -> &'a string { a }
-//~^ ERROR Vertex declares origins, not lifetimes
-//~| ERROR Vertex has no lifetimes
-//~| ERROR Vertex has no lifetimes
+//~^ ERROR lifetimes have no `'` in Vertex
+//~| ERROR lifetimes have no `'` in Vertex
+//~| ERROR lifetimes have no `'` in Vertex

@@ -215,16 +215,23 @@ impl<'a> Parser<'a> {
             self.bump();
             let name = label.name.as_str().trim_start_matches('\'');
             self.dcx()
-                .struct_span_err(label.span, "Vertex has no lifetimes")
+                .struct_span_err(label.span, "lifetimes have no `'` in Vertex")
                 .with_span_suggestion(
                     label.span,
-                    "name the origin instead",
-                    format!("[{name}]"),
-                    Applicability::MaybeIncorrect,
+                    "remove the leading `'`",
+                    name.to_string(),
+                    Applicability::MachineApplicable,
                 )
                 .emit();
             let ident = Ident::new(vsc_span::Symbol::intern(name), label.span);
             return Ok(GenericArg::Origin(vsc_ast::OriginRef { origins: vec![ident], span: label.span }));
+        }
+        if self.eat_keyword(kw::Static) {
+            let span = self.prev_token.span;
+            return Ok(GenericArg::Origin(vsc_ast::OriginRef {
+                origins: vec![Ident::new(kw::Static, span)],
+                span,
+            }));
         }
         if self.check(TokenKind::OpenBracket) && self.origin_list_is_unambiguous() {
             return Ok(GenericArg::Origin(self.parse_origin_ref()?));

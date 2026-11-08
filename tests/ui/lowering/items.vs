@@ -12,15 +12,15 @@ func (s: &mut Stack<T>) Push(x: T) {
     s.len += 1
 }
 
-struct Highlight<src: Origin> { text: &[src] string }
+struct Highlight<src> { text: &src string }
 
-func (h: &Highlight<src>) Text() -> &[src] string { h.text }
+func (h: &Highlight<src>) Text() -> &src string { h.text }
 
 func longest(a: &string, b: &string) -> &[a, b] string {
     if a.Len() >= b.Len() { a } else { b }
 }
 
-func pick<x: Origin, y: Origin>(p: &[x] int64, q: &[y] int64) -> &[x] int64 where x: [y] {
+func pick<x, y>(p: &x int64, q: &y int64) -> &x int64 where x: y {
     p
 }
 

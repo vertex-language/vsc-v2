@@ -70,35 +70,35 @@ help: use `;` to separate them on one line
 18 | struct Point { x: float64; y: float64 } //~ ERROR struct fields are separated by line breaks, not `,`
    |                          ~
 
-error: Vertex declares origins, not lifetimes
+error: lifetimes have no `'` in Vertex
   --> $DIR/rust-spellings.vs:20:14
    |
 20 | func longest<'a>(a: &'a string) -> &'a string { a }
    |              ^^
-help: declare an origin parameter
+help: remove the leading `'`
    |
-20 | func longest<a: Origin>(a: &'a string) -> &'a string { a }
-   |              ~~~~~~~~~
+20 | func longest<a>(a: &'a string) -> &'a string { a }
+   |              ~
 
-error: Vertex has no lifetimes
+error: lifetimes have no `'` in Vertex
   --> $DIR/rust-spellings.vs:20:22
    |
 20 | func longest<'a>(a: &'a string) -> &'a string { a }
    |                      ^^
-help: name the parameter the reference borrows from instead
+help: remove the leading `'`
    |
-20 | func longest<'a>(a: &[a] string) -> &'a string { a }
-   |                      ~~~
+20 | func longest<'a>(a: &a string) -> &'a string { a }
+   |                      ~
 
-error: Vertex has no lifetimes
+error: lifetimes have no `'` in Vertex
   --> $DIR/rust-spellings.vs:20:37
    |
 20 | func longest<'a>(a: &'a string) -> &'a string { a }
    |                                     ^^
-help: name the parameter the reference borrows from instead
+help: remove the leading `'`
    |
-20 | func longest<'a>(a: &'a string) -> &[a] string { a }
-   |                                     ~~~
+20 | func longest<'a>(a: &'a string) -> &a string { a }
+   |                                     ~
 
 error: aborting due to 10 previous errors
 

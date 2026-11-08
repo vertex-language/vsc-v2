@@ -12,11 +12,11 @@ error[E0401]: can't use generic parameters from outer item
 5 |     func generic(v: T) {} //~ ERROR can't use generic parameters from outer item
   |                     ^
 
-error[E0426]: use of undeclared label `'b`
+error[E0426]: use of undeclared label `b`
  --> $DIR/scopes.vs:7:15
   |
-7 |         break 'b //~ ERROR use of undeclared label `'b`
-  |               ^^ undeclared label `'b`
+7 |         break b //~ ERROR use of undeclared label `b`
+  |               ^ undeclared label `b`
 
 error[E0424]: expected value, found package `self`
   --> $DIR/scopes.vs:11:36

@@ -93,8 +93,8 @@ impl<'a> Parser<'a> {
         } else if let Some(label) = self.token.lifetime() {
             self.bump();
             self.dcx()
-                .struct_span_err(label.span, "Vertex has no lifetimes")
-                .with_help("a reference names the parameter it borrows from: `&[a] T` (exception 13)")
+                .struct_span_err(label.span, "lifetimes have no `'` in Vertex")
+                .with_help("write `&a T` instead of `&'a T` (exception 13)")
                 .emit();
             TyKind::Err
         } else if self.check(TokenKind::DotDotDot) {
@@ -171,8 +171,8 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// `&T`, `&mut T`, `&[a] T`, `&[a] mut T` (exception 13). `&&T` is two
-    /// references.
+    /// `&T`, `&mut T`, `&a T`, `&a mut T`, `&static T`, `&_ T` (exception 13).
+    /// `&&T` is two references.
     fn parse_borrowed_ty(&mut self) -> PResult<'a, TyKind> {
         if self.check(TokenKind::AndAnd) {
             self.break_and_eat(TokenKind::And);
@@ -188,21 +188,62 @@ impl<'a> Parser<'a> {
             self.bump();
             let name = label.name.as_str().trim_start_matches('\'');
             self.dcx()
-                .struct_span_err(label.span, "Vertex has no lifetimes")
+                .struct_span_err(label.span, "lifetimes have no `'` in Vertex")
                 .with_span_suggestion(
                     label.span,
-                    "name the parameter the reference borrows from instead",
-                    format!("[{name}]"),
-                    Applicability::MaybeIncorrect,
+                    "remove the leading `'`",
+                    name.to_string(),
+                    Applicability::MachineApplicable,
                 )
                 .emit();
-            None
+            if name == "_" {
+                None
+            } else {
+                Some(OriginRef {
+                    origins: vec![Ident::new(vsc_span::Symbol::intern(name), label.span)],
+                    span: label.span,
+                })
+            }
+        } else if self.is_lifetime_after_ampersand() {
+            if self.eat_keyword(kw::Underscore) {
+                None
+            } else if self.eat_keyword(kw::Static) {
+                let span = self.prev_token.span;
+                Some(OriginRef { origins: vec![Ident::new(kw::Static, span)], span })
+            } else {
+                let ident = self.parse_ident()?;
+                Some(OriginRef { origins: vec![ident], span: ident.span })
+            }
         } else {
             None
         };
         let mutbl = if self.eat_keyword(kw::Mut) { Mutability::Mut } else { Mutability::Not };
         let ty = self.parse_ty_no_plus()?;
         Ok(TyKind::Ref(origin, MutTy { ty, mutbl }))
+    }
+
+    /// After `&`, is the current token a quote-free lifetime (`&a T`,
+    /// `&a mut T`, `&static T`, `&_ T`) rather than the referenced type?
+    pub(super) fn is_lifetime_after_ampersand(&self) -> bool {
+        let is_lifetime_tok = self.token.is_keyword(kw::Static)
+            || self.token.is_keyword(kw::Underscore)
+            || matches!(
+                self.token.ident(),
+                Some((ident, _))
+                    if !ident.is_reserved()
+                        && !ident.name.is_builtin_name()
+                        && ident.name.as_str().starts_with(|c: char| c.is_ascii_lowercase())
+            );
+        if !is_lifetime_tok {
+            return false;
+        }
+        let next = self.look_ahead(1);
+        if next.line_break_before
+            || matches!(next.kind, TokenKind::Dot | TokenKind::Lt | TokenKind::Shl | TokenKind::Colon)
+        {
+            return false;
+        }
+        next.is_keyword(kw::Mut) || next.can_begin_type()
     }
 
     /// After `&`, is `[…]` an origin list rather than a slice type? It is when

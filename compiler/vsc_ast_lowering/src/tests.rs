@@ -342,24 +342,24 @@ fn loops(l: &Lowered) -> Loops {
 fn labeled_jumps_target_their_loop() {
     let l = lower(
         "func main(xs: &[int64]) {
-    'outer: for x in xs {
+    outer: for x in xs {
         for y in xs {
-            if *y > *x { continue 'outer }
-            if *y == 0 { break 'outer }
+            if *y > *x { continue outer }
+            if *y == 0 { break outer }
         }
     }
-    let v = 'b: { break 'b 1 }
+    let v = b: { break b 1 }
 }",
     );
     assert_valid(&l);
     assert!(l.diagnostics.is_empty(), "{}", l.diagnostics);
     let info = loops(&l);
-    let outer = info.labeled["'outer"];
-    let b = info.labeled["'b"];
+    let outer = info.labeled["outer"];
+    let b = info.labeled["b"];
     let labeled: Vec<_> = info.jumps.iter().filter(|(label, _)| label.is_some()).collect();
     assert_eq!(labeled.len(), 3);
     for (label, target) in labeled {
-        let want = if label.as_deref() == Some("'b") { b } else { outer };
+        let want = if label.as_deref() == Some("b") { b } else { outer };
         assert_eq!(*target, Some(want), "{label:?}");
     }
 }

@@ -436,7 +436,7 @@ impl<'a> Parser<'a> {
             }
             if name == kw::Break {
                 self.bump();
-                let label = self.parse_opt_label_use();
+                let label = self.parse_opt_break_label();
                 let value = if self.expr_can_follow_jump()
                     && !(self.check(TokenKind::OpenBrace) && self.restrictions.contains(Restrictions::NO_STRUCT_LITERAL))
                 {
@@ -448,7 +448,7 @@ impl<'a> Parser<'a> {
             }
             if name == kw::Continue {
                 self.bump();
-                let label = self.parse_opt_label_use();
+                let label = self.parse_opt_continue_label();
                 return Ok(self.mk_expr(lo.to(self.prev_token.span), ExprKind::Continue(label)));
             }
             if name == kw::Underscore {
@@ -467,6 +467,12 @@ impl<'a> Parser<'a> {
                 return Ok(self.mk_expr(lo.to(self.prev_token.span), ExprKind::InlineAsm(asm)));
             }
         }
+        if self.token.is_non_keyword_ident()
+            && self.look_ahead(1).kind == TokenKind::Colon
+            && self.look_ahead(2).kind != TokenKind::Colon
+        {
+            return self.parse_expr_labeled();
+        }
         if self.check_path_segment_ident() {
             return self.parse_expr_path_start();
         }
@@ -482,13 +488,55 @@ impl<'a> Parser<'a> {
             && !self.check(TokenKind::Semi)
     }
 
-    fn parse_opt_label_use(&mut self) -> Option<Label> {
-        let ident = self.token.lifetime()?;
+    fn strip_label_quote(ident: Ident) -> Ident {
+        Ident::new(Symbol::intern(ident.name.as_str().trim_start_matches('\'')), ident.span)
+    }
+
+    fn parse_opt_continue_label(&mut self) -> Option<Label> {
         if self.at_line_break() {
             return None;
         }
-        self.bump();
-        Some(Label { ident })
+        if let Some(ident) = self.token.lifetime() {
+            self.bump();
+            return Some(Label { ident: Self::strip_label_quote(ident) });
+        }
+        if self.token.is_non_keyword_ident() {
+            let ident = self.parse_ident().ok()?;
+            return Some(Label { ident });
+        }
+        None
+    }
+
+    fn parse_opt_break_label(&mut self) -> Option<Label> {
+        if self.at_line_break() {
+            return None;
+        }
+        if let Some(ident) = self.token.lifetime() {
+            self.bump();
+            return Some(Label { ident: Self::strip_label_quote(ident) });
+        }
+        if self.token.is_non_keyword_ident() {
+            let (ident, _) = self.token.ident().unwrap();
+            let next = self.look_ahead(1);
+            let is_known_label = self.labels.contains(&ident.name);
+            let followed_by_value = !next.line_break_before
+                && (next.is_lit() || next.is_bool_lit() || next.is_non_keyword_ident());
+            let bare_in_labeled_ctx = (!self.labels.is_empty() || self.in_for_or_while)
+                && (next.line_break_before
+                    || matches!(
+                        next.kind,
+                        TokenKind::Semi
+                            | TokenKind::CloseBrace
+                            | TokenKind::CloseParen
+                            | TokenKind::Comma
+                            | TokenKind::Eof
+                    ));
+            if is_known_label || followed_by_value || bare_in_labeled_ctx {
+                self.bump();
+                return Some(Label { ident });
+            }
+        }
+        None
     }
 
     /// A path, then maybe a struct literal: `Point { x: 1, y: 2 }`.
@@ -613,11 +661,16 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    /// `'label: loop { … }`, `'label: while …`, `'label: for …`, `'label: { … }`.
+    /// `label: loop { … }`, `label: while …`, `label: for …`, `label: { … }`.
     fn parse_expr_labeled(&mut self) -> PResult<'a, P<Expr>> {
         let lo = self.token.span;
-        let ident = self.token.lifetime().unwrap();
-        self.bump();
+        let ident = if let Some(ident) = self.token.lifetime() {
+            self.bump();
+            Self::strip_label_quote(ident)
+        } else {
+            self.parse_ident()?
+        };
+        self.labels.push(ident.name);
         self.expect(TokenKind::Colon)?;
         let label = Some(Label { ident });
         if self.check_keyword(kw::Loop) || self.check_keyword(kw::While) || self.check_keyword(kw::For) {
@@ -638,7 +691,10 @@ impl<'a> Parser<'a> {
         }
         if self.eat_keyword(kw::While) {
             let cond = self.parse_expr_cond()?;
-            let body = self.parse_block_expecting("while")?;
+            let prev = std::mem::replace(&mut self.in_for_or_while, true);
+            let body = self.parse_block_expecting("while");
+            self.in_for_or_while = prev;
+            let body = body?;
             return Ok(self.mk_expr(lo.to(body.span), ExprKind::While(cond, body, label)));
         }
         self.expect_keyword(kw::For)?;
@@ -649,7 +705,10 @@ impl<'a> Parser<'a> {
             return Err(err);
         }
         let iter = self.parse_expr_res(Restrictions::NO_STRUCT_LITERAL)?;
-        let body = self.parse_block_expecting("for")?;
+        let prev = std::mem::replace(&mut self.in_for_or_while, true);
+        let body = self.parse_block_expecting("for");
+        self.in_for_or_while = prev;
+        let body = body?;
         Ok(self.mk_expr(lo.to(body.span), ExprKind::ForLoop { pat, iter, body, label }))
     }
 

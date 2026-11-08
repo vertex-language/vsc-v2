@@ -960,7 +960,7 @@ impl<'a> Printer<'a> {
 
     fn label(&mut self, l: &Option<Label>) {
         if let Some(l) = l {
-            let _ = write!(self.out, "{}: ", l.ident);
+            let _ = write!(self.out, "'{}: ", l.ident.as_str().trim_start_matches('\''));
         }
     }
 
@@ -1151,7 +1151,7 @@ impl<'a> Printer<'a> {
             ExprKind::Break(dest, value) => {
                 self.w("break");
                 if let Some(l) = dest.label {
-                    let _ = write!(self.out, " {}", l.ident);
+                    let _ = write!(self.out, " '{}", l.ident.as_str().trim_start_matches('\''));
                 }
                 if let Some(v) = value {
                     self.w(" ");
@@ -1161,7 +1161,7 @@ impl<'a> Printer<'a> {
             ExprKind::Continue(dest) => {
                 self.w("continue");
                 if let Some(l) = dest.label {
-                    let _ = write!(self.out, " {}", l.ident);
+                    let _ = write!(self.out, " '{}", l.ident.as_str().trim_start_matches('\''));
                 }
             }
             ExprKind::Ret(v) => {

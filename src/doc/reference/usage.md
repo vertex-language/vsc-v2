@@ -3,7 +3,7 @@
 Vertex is **Rust with fourteen exceptions**. Programs are written, checked and compiled
 with Rust's meaning: ownership, borrowing, traits, generics, `Result` and `?`, async. The
 fourteen exceptions change how some of it is spelled, using syntax taken from Go, Swift,
-Scala and Mojo.
+TypeScript and Scala.
 
 This guide shows each feature as a pair: the Rust code first, then the same code in
 Vertex. It covers `.vs` source files. The formal grammar is
@@ -26,7 +26,7 @@ Vertex. It covers `.vs` source files. The formal grammar is
 10. [Methods: `implement` and flat receivers](#methods-implement-and-flat-receivers)
 11. [Traits](#traits)
 12. [Ownership and borrowing](#ownership-and-borrowing)
-13. [Origins](#origins)
+13. [Lifetimes](#lifetimes)
 14. [Errors](#errors)
 15. [Function literals and `func` values](#function-literals-and-func-values)
 16. [Classes](#classes)
@@ -49,19 +49,19 @@ Everything not in this table is written as in Rust.
 
 | # | Rust | Vertex | Source |
 | --- | --- | --- | --- |
-| 1 | `mod`, `use std::fs;`, `crate::` | `package main`, `import "std/fs"` | Go |
+| 1 | `mod`, `use std::fs;`, `use a::B;` | `package main`, `import "std/fs"`, `import { B } from "a"` | Go, TypeScript |
 | 2 | `i64`, `f64`, `usize`, `String`, `&str`, `!` | `int64`, `float64`, `uint`, `string`, `&string`, `never` | Go |
 | 3 | `Rc<RefCell<T>>` | `class` | Swift |
 | 4 | `fn` | `func` | Go, Swift |
 | 5 | `let mut x` | `var x` | Swift, Go |
 | 6 | `pub`, `pub(crate)` | `public`, `package` | Swift |
-| 7 | `fs::read_to_string`, `Status::Todo` | `fs.ReadToString`, `Status.Todo` | Go, Swift |
-| 8 | `impl Task { … }` | `implement Task { … }`, or flat `func (t: &Task) M()` | Rust spelled out, Go |
+| 7 | `fs::read_to_string`, `Status::Todo` | `fs.readToString`, `Status.Todo` | Go, Swift |
+| 8 | `impl Task { … }` | `implement Task { … }`, or flat `func (t: &Task) m()` | Rust spelled out, Go |
 | 9 | `#[derive(Debug)]` | `@derive(Debug)` | Swift |
 | 10 | `;`, commas after fields, variants and arms | line breaks (`;` only to share a line) | Swift, Scala, Go |
-| 11 | `snake_case` | `PascalCase` public, `camelCase` internal | Go |
+| 11 | `snake_case` | `camelCase` (`PascalCase` for types, traits, variants) | TypeScript, Swift |
 | 12 | `println!`, `format!`, `vec!` | `println`, `format`, `vec` | Go |
-| 13 | `fn f<'a>(x: &'a str) -> &'a str` | `func f(x: &string) -> &[x] string` | Mojo |
+| 13 | `'a`, `&'a T`, `&'static str`, `'outer:` | `a`, `&a T`, `&static string`, `outer:` | Go, Swift |
 | 14 | `move \|x\| x + 1`, `Rc<dyn Fn(u32)>` | `func(x) { x + 1 }`, `func(uint32)` | Go |
 
 ---
@@ -85,19 +85,25 @@ package main
 import "std/fs"
 
 func main() {
-    let text = fs.ReadToString("notes.txt").Unwrap()
-    println("{} bytes", text.Len())
+    let text = fs.readToString("notes.txt").unwrap()
+    println("{} bytes", text.len())
 }
 ```
 
 A folder is a package, and every `.vs` file in it belongs to it. `func main()` in package
-`main` is the entry point. Imports are string paths, bound to the last segment of the
-path or to a name you give:
+`main` is the entry point.
+
+Imports use string paths in three forms:
+
+1. **Package shorthand (`import "std/fs"`):** binds the last segment of the path (`fs`) as a package namespace. Best for free-function packages (`fs.readToString`, `task.join`).
+2. **Named imports (`import { HashMap } from "std/collections"`):** brings specific types, traits, functions or `.vsx` components directly into the file's scope, optionally renamed with `as`.
+3. **Aliased package or combined (`import geo from "./geometry"`, `import http, { Error as HttpError } from "net/http"`):** binds the package to a name you give, alone or alongside named imports.
 
 ```rust
 // Rust
 mod geometry;
 use std::collections::HashMap;
+use std::io::{Error as IoError, Read};
 use std::sync::{Arc, Mutex};
 use crate::geometry::Point;
 ```
@@ -106,22 +112,23 @@ use crate::geometry::Point;
 // Vertex
 package main
 
-import (
-    "std/collections"
-    "std/sync"
-    geo "./geometry"
-)
+import { HashMap } from "std/collections"
+import { Read, Error as IoError } from "std/io"
+import { Arc, Mutex } from "std/sync"
+import http, { Error as HttpError } from "net/http"
+import geo, { Point } from "./geometry"
 
 func main() {
-    let scores: collections.HashMap<string, int64> = collections.HashMap.New()
-    let shared = sync.Arc.New(sync.Mutex.New(0))
-    let origin = geo.Point { x: 0.0, y: 0.0 }
+    let scores: HashMap<string, int64> = HashMap.new()
+    let shared = Arc.new(Mutex.new(0))
+    let origin = Point { x: 0.0, y: 0.0 }
 }
 ```
 
-Everything from another package is used qualified (`collections.HashMap`). Rust's prelude
-needs no import: `Option`, `Some`, `None`, `Result`, `Ok`, `Err`, `Vec`, `Box`, and
-traits such as `Clone`, `Copy`, `Default`, `Drop`, `From`, `Into`, `Iterator` and `Fn`.
+Rust's prelude needs no import: `Option`, `Some`, `None`, `Result`, `Ok`, `Err`, `Vec`,
+`Box`, and traits such as `Clone`, `Copy`, `Default`, `Drop`, `From`, `Into`, `Iterator`
+and `Fn`. Other traits (such as `Read` from `std/io`) are imported with `{ Read }` to call
+their methods on a value.
 
 ---
 
@@ -199,8 +206,8 @@ fn fail() -> ! { panic!("stop") }
 let age: uint8 = 42
 let big: int64 = -9_000_000_000
 let ratio: float64 = 0.75
-let count: uint = items.Len()
-let name: string = "Ada".ToString()
+let count: uint = items.len()
+let name: string = "Ada".toString()
 let greeting: &string = "hello"
 let pair: (int32, &string) = (1, "one")
 let grid: [[uint8; 3]; 2] = [[0; 3]; 2]
@@ -284,8 +291,8 @@ let words = line.split(' ').collect::<Vec<_>>();
 
 ```rust
 // Vertex
-let n: int64 = "5".Parse().Unwrap()
-let words: Vec<&string> = line.Split(' ').Collect()
+let n: int64 = "5".parse().unwrap()
+let words: Vec<&string> = line.split(' ').collect()
 ```
 
 ---
@@ -313,10 +320,10 @@ let a = 1; let b = 2;
 ```rust
 // Vertex
 let total: uint64 = orders
-    .Iter()
-    .Filter(func(o) { o.paid })
-    .Map(func(o) { o.amount })
-    .Sum()
+    .iter()
+    .filter(func(o) { o.paid })
+    .map(func(o) { o.amount })
+    .sum()
 
 let ok = hasName
     && hasEmail
@@ -373,8 +380,8 @@ fn remember(map: &mut HashMap<u64, Task>, t: Task) {
 
 ```rust
 // Vertex
-func remember(m: &mut collections.HashMap<uint64, Task>, t: Task) {
-    m.Insert(t.id, t)                     // the function returns (), so the Option<Task> is discarded
+func remember(m: &mut HashMap<uint64, Task>, t: Task) {
+    m.insert(t.id, t)                     // the function returns (), so the Option<Task> is discarded
 }
 ```
 
@@ -422,7 +429,7 @@ for i in 0..10 {
     println("{i}")
 }
 
-for i in (1..=3).Rev() {
+for i in (1..=3).rev() {
     println("{i}")
 }
 
@@ -437,10 +444,10 @@ let found = loop {
     }
 }
 
-'outer: for row in &grid {
+outer: for row in &grid {
     for &cell in row {
         if cell == 0 {
-            break 'outer
+            break outer
         }
     }
 }
@@ -486,9 +493,9 @@ struct Meters(float64)                    // tuple struct
 struct Marker                             // unit struct
 
 let id = 7
-let title = "write docs".ToString()
+let title = "write docs".toString()
 let t = Task { id, title, done: false }
-let copy = Task { done: true, ..t.Clone() }
+let copy = Task { done: true, ..t.clone() }
 let Task { id, title, .. } = t
 let m = Meters(3.5)
 println("{}", m.0)
@@ -548,14 +555,14 @@ enum Event {
 
 func describe(e: &Event) -> string {
     match e {
-        Event.Quit => "quit".ToString()
-        Event.Key(c) if c.IsAsciiDigit() => format("digit {c}")
+        Event.Quit => "quit".toString()
+        Event.Key(c) if c.isAsciiDigit() => format("digit {c}")
         Event.Key(c) => format("key {c}")
         Event.Click { x, y } => format("click at {x},{y}")
     }
 }
 
-func bucket(n: uint32) -> &[static] string {
+func bucket(n: uint32) -> &static string {
     match n {
         0 => "none"
         small @ 1..=9 if small % 2 == 0 => "small even"
@@ -606,7 +613,7 @@ let Some(user) = find(id) else {
     return Err(Error.NotFound)
 }
 
-while let Some(top) = stack.Pop() {
+while let Some(top) = stack.pop() {
     println("{top}")
 }
 ```
@@ -646,32 +653,32 @@ t.finish();
 ```rust
 // Vertex: a block
 implement Task {
-    public func New(id: uint64, title: string) -> Task {
+    public func new(id: uint64, title: string) -> Task {
         Task { id, title, done: false }
     }
 
-    public func IsOpen(&self) -> bool {
+    public func isOpen(&self) -> bool {
         !self.done
     }
 
-    public func Finish(&mut self) {
+    public func finish(&mut self) {
         self.done = true
     }
 
-    public func IntoTitle(self) -> string {
+    public func intoTitle(self) -> string {
         self.title
     }
 }
 
-var t = Task.New(1, "ship".ToString())
-t.Finish()
+var t = Task.new(1, "ship".toString())
+t.finish()
 ```
 
 ```rust
 // Vertex: flat receivers, the same methods
-public func (t: &Task) IsOpen() -> bool { !t.done }
-public func (t: &mut Task) Finish() { t.done = true }
-public func (t: Task) IntoTitle() -> string { t.title }
+public func (t: &Task) isOpen() -> bool { !t.done }
+public func (t: &mut Task) finish() { t.done = true }
+public func (t: Task) intoTitle() -> string { t.title }
 ```
 
 | Rust receiver | Vertex block | Vertex flat |
@@ -682,7 +689,7 @@ public func (t: Task) IntoTitle() -> string { t.title }
 | `mut self` | `var self` | `(t: Task)`, then `var t = t` |
 
 The usual style: flat functions for a type's own methods, and a block when you have an
-associated function such as `New` or a large type. A type can mix both, but each method
+associated function such as `new` or a large type. A type can mix both, but each method
 name is defined once.
 
 Generic types work the same way. In a flat receiver, naming the type parameter introduces
@@ -714,11 +721,11 @@ struct Stack<T> {
     items: Vec<T>
 }
 
-func (s: &mut Stack<T>) Push(item: T) { s.items.Push(item) }
-func (s: &mut Stack<T>) Pop() -> Option<T> { s.items.Pop() }
+func (s: &mut Stack<T>) push(item: T) { s.items.push(item) }
+func (s: &mut Stack<T>) pop() -> Option<T> { s.items.pop() }
 
 implement<T: fmt.Display> Stack<T> {
-    func Show(&self) {
+    func show(&self) {
         for item in &self.items {
             println("{item}")
         }
@@ -762,36 +769,36 @@ fn biggest<S: Shape>(a: S, b: S) -> S {
 ```rust
 // Vertex
 trait Shape {
-    func Area(&self) -> float64
-    func Name(&self) -> string {
-        "shape".ToString()
+    func area(&self) -> float64
+    func name(&self) -> string {
+        "shape".toString()
     }
 }
 
 struct Circle { r: float64 }
 
 implement Shape for Circle {
-    func Area(&self) -> float64 { 3.14 * self.r * self.r }
-    func Name(&self) -> string { "circle".ToString() }
+    func area(&self) -> float64 { 3.14 * self.r * self.r }
+    func name(&self) -> string { "circle".toString() }
 }
 
 func totalArea(shapes: &[Box<dyn Shape>]) -> float64 {
-    shapes.Iter().Map(func(s) { s.Area() }).Sum()
+    shapes.iter().map(func(s) { s.area() }).sum()
 }
 
 func printArea(s: &impl Shape) {
-    println("{} has area {}", s.Name(), s.Area())
+    println("{} has area {}", s.name(), s.area())
 }
 
 func biggest<S: Shape>(a: S, b: S) -> S {
-    if a.Area() >= b.Area() { a } else { b }
+    if a.area() >= b.area() { a } else { b }
 }
 ```
 
 A trait is always implemented in an explicit `implement Trait for Type` block. The block is
 checked against the trait, so a missing or misspelled method is an error where it's written.
 
-Standard traits work the same way. Their method names use Go casing:
+Standard traits work the same way. Their method names use `camelCase`:
 
 ```rust
 // Rust
@@ -830,48 +837,46 @@ impl Iterator for Countdown {
 
 ```rust
 // Vertex
-import (
-    "std/fmt"
-    "std/ops"
-)
+import "std/fmt"
+import { Add } from "std/ops"
 
 @derive(Clone, Copy, Debug, PartialEq)
 struct Point { x: float64; y: float64 }
 
-implement ops.Add for Point {
+implement Add for Point {
     type Output = Point
-    func Add(self, o: Point) -> Point {
+    func add(self, o: Point) -> Point {
         Point { x: self.x + o.x, y: self.y + o.y }
     }
 }
 
 implement fmt.Display for Point {
-    func Fmt(&self, f: &mut fmt.Formatter) -> fmt.Result {
-        f.WriteStr(&format("({}, {})", self.x, self.y))
+    func fmt(&self, f: &mut fmt.Formatter) -> fmt.Result {
+        f.writeStr(&format("({}, {})", self.x, self.y))
     }
 }
 
 implement Default for Point {
-    func Default() -> Point { Point { x: 0.0, y: 0.0 } }
+    func default() -> Point { Point { x: 0.0, y: 0.0 } }
 }
 
 struct Countdown(uint32)
 
 implement Iterator for Countdown {
     type Item = uint32
-    func Next(&mut self) -> Option<uint32> {
+    func next(&mut self) -> Option<uint32> {
         if self.0 == 0 { None } else { self.0 -= 1; Some(self.0 + 1) }
     }
 }
 ```
 
-`write!` isn't a built-in, so `Fmt` writes a formatted string with `f.WriteStr(&format(…))`.
+`write!` isn't a built-in, so `fmt` writes a formatted string with `f.writeStr(&format(…))`.
 
 ---
 
 ## Ownership and borrowing
 
-The rules are Rust's: values move by default, `Copy` types are copied, `.Clone()` makes an
+The rules are Rust's: values move by default, `Copy` types are copied, `.clone()` makes an
 explicit copy, and a value can have one `&mut` borrow or any number of `&` borrows.
 
 ```rust
@@ -898,16 +903,16 @@ for n in nums { println!("{n}"); }        // consume the Vec
 
 ```rust
 // Vertex
-let a = "hi".ToString()
+let a = "hi".toString()
 let b = a                                 // moved
 // println("{a}")                         // error[E0382]: borrow of moved value: `a`
-let c = b.Clone()
+let c = b.clone()
 
-func len(s: &string) -> uint { s.Len() }
-func shout(s: &mut string) { s.Push('!') }
-func consume(s: string) -> uint { s.Len() }
+func len(s: &string) -> uint { s.len() }
+func shout(s: &mut string) { s.push('!') }
+func consume(s: string) -> uint { s.len() }
 
-var msg = "hello".ToString()
+var msg = "hello".toString()
 shout(&mut msg)
 let n = len(&msg)
 let m = consume(msg)                      // msg is moved
@@ -923,11 +928,11 @@ move while borrowed), and Rust's explanations for them apply.
 
 ---
 
-## Origins
+## Lifetimes
 
-Where Rust names a lifetime (`'a`), Vertex names the parameter a reference is borrowed
-from: `&[a] T` means "a reference borrowed from `a`". The meaning and the borrow checker
-are Rust's. As in Rust, most functions need no annotation at all.
+Lifetimes and loop labels work exactly as in Rust, without the single quote `'`: `'a` is
+`a`, `&'a T` is `&a T`, `&'static str` is `&static string`, and `'outer:` is `outer:`. As
+in Rust, most functions need no lifetime annotation at all.
 
 ```rust
 // Rust
@@ -949,21 +954,21 @@ const GREETING: &'static str = "hello";
 ```rust
 // Vertex
 func firstWord(s: &string) -> &string {                // elided
-    s.Split(' ').Next().UnwrapOr("")
+    s.split(' ').next().unwrapOr("")
 }
 
-func longest(a: &string, b: &string) -> &[a, b] string {
-    if a.Len() >= b.Len() { a } else { b }
+func longest<a>(a: &a string, b: &a string) -> &a string {
+    if a.len() >= b.len() { a } else { b }
 }
 
-func pickFirst(a: &string, b: &string) -> &[a] string {
+func pickFirst<a, b>(a: &a string, _b: &b string) -> &a string {
     a
 }
 
-const Greeting: &[static] string = "hello"
+const greeting: &static string = "hello"
 ```
 
-A type that holds a borrow declares an origin parameter:
+A type that holds a borrow declares a lifetime parameter the same way:
 
 ```rust
 // Rust
@@ -986,37 +991,37 @@ println!("{}", h.part());                // hello
 
 ```rust
 // Vertex
-struct Highlight<src: Origin> {
-    text: &[src] string
+struct Highlight<a> {
+    text: &a string
     start: uint
     end: uint
 }
 
-implement<src: Origin> Highlight<src> {
-    func Part(&self) -> &[src] string {
+implement<a> Highlight<a> {
+    func part(&self) -> &a string {
         &self.text[self.start..self.end]
     }
 }
 
-let doc = string.From("hello world")
+let doc = string.from("hello world")
 let h = Highlight { text: &doc, start: 0, end: 5 }
-println("{}", h.Part())                  // hello
+println("{}", h.part())                  // hello
 ```
 
 | Rust | Vertex |
 | --- | --- |
-| `&'a T`, `&'a mut T` | `&[a] T`, `&[a] mut T` |
-| `fn f<'a>(x: &'a T, y: &'a T) -> &'a T` | `func f(x: &T, y: &T) -> &[x, y] T` |
-| `struct S<'a> { r: &'a T }` | `struct S<src: Origin> { r: &[src] T }` |
-| `impl<'a> S<'a>` | `implement<src: Origin> S<src>` |
-| `'a: 'b` | `a: Origin + [b]` |
-| `T: 'a` | `T: [a]` |
-| `&'static str` | `&[static] string` |
-| `for<'a> Fn(&'a T)` | `for<a: Origin> Fn(&[a] T)` |
-| `'_` | left out |
+| `&'a T`, `&'a mut T` | `&a T`, `&a mut T` |
+| `fn f<'a>(x: &'a T, y: &'a T) -> &'a T` | `func f<a>(x: &a T, y: &a T) -> &a T` |
+| `struct S<'a> { r: &'a T }` | `struct S<a> { r: &a T }` |
+| `impl<'a> S<'a>` | `implement<a> S<a>` |
+| `'a: 'b` | `a: b` |
+| `T: 'a` | `T: a` |
+| `&'static str` | `&static string` |
+| `for<'a> Fn(&'a T)` | `for<a> Fn(&a T)` |
+| `&'_ T` | `&_ T` (or `&T`) |
+| `'outer: loop { break 'outer }` | `outer: loop { break outer }` |
 
-`&[a] string` is a reference with an origin, and `&[uint8]` is a slice: after `&`, a
-bracketed list followed by a type is an origin.
+Lifetimes are `camelCase` (`a`, `src`), while type parameters are `PascalCase` (`T`, `Item`).
 
 ---
 
@@ -1073,34 +1078,32 @@ fn main() -> Result<(), ConfigError> {
 // Vertex
 package main
 
-import (
-    "std/fs"
-    "std/io"
-    "std/num"
-)
+import "std/fs"
+import "std/io"
+import { ParseIntError } from "std/num"
 
 @derive(Debug)
 enum ConfigError {
     Io(io.Error)
-    Parse(num.ParseIntError)
+    Parse(ParseIntError)
     Missing(string)
 }
 
 implement From<io.Error> for ConfigError {
-    func From(e: io.Error) -> Self { ConfigError.Io(e) }
+    func from(e: io.Error) -> Self { ConfigError.Io(e) }
 }
 
-implement From<num.ParseIntError> for ConfigError {
-    func From(e: num.ParseIntError) -> Self { ConfigError.Parse(e) }
+implement From<ParseIntError> for ConfigError {
+    func from(e: ParseIntError) -> Self { ConfigError.Parse(e) }
 }
 
 func readPort(path: &string) -> Result<uint16, ConfigError> {
-    let text = fs.ReadToString(path)?
+    let text = fs.readToString(path)?
     let line = text
-        .Lines()
-        .Find(func(l) { l.StartsWith("port=") })
-        .OkOr(ConfigError.Missing("port".ToString()))?
-    let port: uint16 = line["port=".Len()..].Trim().Parse()?
+        .lines()
+        .find(func(l) { l.startsWith("port=") })
+        .okOr(ConfigError.Missing("port".toString()))?
+    let port: uint16 = line["port=".len()..].trim().parse()?
     Ok(port)
 }
 
@@ -1108,8 +1111,8 @@ func main() -> Result<(), ConfigError> {
     let port = readPort("app.conf")?
     println("listening on {port}")
 
-    let fallback = readPort("other.conf").UnwrapOr(8080)
-    let maybe = readPort("missing.conf").Ok()
+    let fallback = readPort("other.conf").unwrapOr(8080)
+    let maybe = readPort("missing.conf").ok()
     match readPort("bad.conf") {
         Ok(p) => println("{p}")
         Err(ConfigError.Missing(key)) => println("missing {key}")
@@ -1132,12 +1135,12 @@ fn middle_initial(name: &str) -> Option<char> {
 ```rust
 // Vertex
 func middleInitial(name: &string) -> Option<char> {
-    let middle = name.Split(' ').Nth(1)?
-    middle.Chars().Next()
+    let middle = name.split(' ').nth(1)?
+    middle.chars().next()
 }
 ```
 
-A panic (`panic("…")`, `.Unwrap()` on `None`, an out-of-bounds index) exits with code 101,
+A panic (`panic("…")`, `.unwrap()` on `None`, an out-of-bounds index) exits with code 101,
 as in Rust.
 
 ---
@@ -1164,9 +1167,9 @@ let double = func(x: int64) { x * 2 }
 let add = func(a, b) { a + b }
 let greet = func() { println("hi") }
 
-let evens: Vec<int64> = nums.Iter().Copied().Filter(func(n) { n % 2 == 0 }).Collect()
-names.SortBy(func(a, b) { a.Len().Cmp(&b.Len()) })
-let shout = func(s: &string) -> string { s.ToUppercase() }
+let evens: Vec<int64> = nums.iter().copied().filter(func(n) { n % 2 == 0 }).collect()
+names.sortBy(func(a, b) { a.len().cmp(&b.len()) })
+let shout = func(s: &string) -> string { s.toUppercase() }
 ```
 
 **Captures.** There's no `move` keyword. A function literal that escapes the scope it was
@@ -1191,7 +1194,7 @@ std::thread::spawn(move || println!("{name}"));
 
 ```rust
 // Vertex
-func MakeAdder(n: int32) -> impl Fn(int32) -> int32 {
+func makeAdder(n: int32) -> impl Fn(int32) -> int32 {
     func(x) { x + n }                     // returned, so it owns `n`
 }
 
@@ -1201,8 +1204,8 @@ inc()
 inc()
 println("{count}")                         // 2
 
-let name = "Ada".ToString()
-thread.Spawn(func() { println("{name}") }) // spawned, so it owns `name`
+let name = "Ada".toString()
+thread.spawn(func() { println("{name}") }) // spawned, so it owns `name`
 ```
 
 **Function types.** Every Rust closure has its own unnameable type, so storing one means
@@ -1235,8 +1238,8 @@ struct Button {
 
 func logClick(id: uint32) { println("clicked {id}") }
 
-let b = Button { label: "Go".ToString(), onClick: logClick }
-let c = Button { label: "Stop".ToString(), onClick: func(id) { println("stop {id}") } }
+let b = Button { label: "Go".toString(), onClick: logClick }
+let c = Button { label: "Stop".toString(), onClick: func(id) { println("stop {id}") } }
 (b.onClick)(1)
 ```
 
@@ -1255,7 +1258,7 @@ fn count_where<T, F>(items: &[T], pred: F) -> usize where F: Fn(&T) -> bool {
 // Vertex
 func applyTwice<F: Fn(int64) -> int64>(f: F, x: int64) -> int64 { f(f(x)) }
 func countWhere<T, F>(items: &[T], pred: F) -> uint where F: Fn(&T) -> bool {
-    items.Iter().Filter(func(x) { pred(x) }).Count()
+    items.iter().filter(func(x) { pred(x) }).count()
 }
 ```
 
@@ -1268,7 +1271,7 @@ server.route("/sync", async |req| { handle(req).await });
 
 ```rust
 // Vertex
-server.Route("/sync", async func(req) { handle(req).await })
+server.route("/sync", async func(req) { handle(req).await })
 ```
 
 ---
@@ -1319,32 +1322,32 @@ println!("{}", store.count());            // 1
 
 ```rust
 // Vertex
-import "std/collections"
+import { HashMap } from "std/collections"
 
 class Store {
-    tasks: collections.HashMap<uint64, string>
-    nextID: uint64
+    tasks: HashMap<uint64, string>
+    nextId: uint64
 }
 
 implement Store {
-    func New() -> Store {
-        Store { tasks: collections.HashMap.New(), nextID: 1 }
+    func new() -> Store {
+        Store { tasks: HashMap.new(), nextId: 1 }
     }
 }
 
-func (s: &Store) Add(title: &string) -> uint64 {
-    let id = s.nextID
-    s.nextID += 1
-    s.tasks.Insert(id, title.ToString())
+func (s: &Store) add(title: &string) -> uint64 {
+    let id = s.nextId
+    s.nextId += 1
+    s.tasks.insert(id, title.toString())
     id
 }
 
-func (s: &Store) Count() -> uint { s.tasks.Len() }
+func (s: &Store) count() -> uint { s.tasks.len() }
 
-let store = Store.New()
+let store = Store.new()
 let shared = store                        // same object
-shared.Add("write docs")
-println("{}", store.Count())              // 1
+shared.add("write docs")
+println("{}", store.count())              // 1
 ```
 
 Weak references and cleanup work as in Rust:
@@ -1367,20 +1370,22 @@ impl Drop for Node {
 
 ```rust
 // Vertex
+import { Weak } from "std/rc"
+
 class Node {
     name: string
     parent: Weak<Node>
 }
 
 implement Drop for Node {
-    func Drop(&mut self) {
+    func drop(&mut self) {
         println("dropping {}", self.name)
     }
 }
 ```
 
 A class's reference count isn't atomic, so a class isn't `Send`. For state shared between
-threads, use `sync.Arc<sync.Mutex<T>>` (see [Threads and async](#threads-and-async)).
+threads, use `Arc<Mutex<T>>` (see [Threads and async](#threads-and-async)).
 Classes have no inheritance; shared behavior comes from traits.
 
 ---
@@ -1423,36 +1428,36 @@ let pairs: Vec<(i32, char)> = v.iter().copied().zip("abc".chars()).collect();
 
 ```rust
 // Vertex
-import "std/collections"
+import { HashMap } from "std/collections"
 
-var v: Vec<int32> = Vec.New()
-v.Push(3)
-v.Push(1)
-v.Extend([4, 1, 5])
-v.Sort()
-v.Dedup()
-let first = v.First().Copied()
-let hasFour = v.Contains(&4)
+var v: Vec<int32> = Vec.new()
+v.push(3)
+v.push(1)
+v.extend([4, 1, 5])
+v.sort()
+v.dedup()
+let first = v.first().copied()
+let hasFour = v.contains(&4)
 
-let squares: Vec<int32> = v.Iter().Map(func(x) { x * x }).Collect()
-let total: int32 = v.Iter().Sum()
-let (small, large): (Vec<int32>, Vec<int32>) = v.Iter().Copied().Partition(func(&x) { x < 3 })
+let squares: Vec<int32> = v.iter().map(func(x) { x * x }).collect()
+let total: int32 = v.iter().sum()
+let (small, large): (Vec<int32>, Vec<int32>) = v.iter().copied().partition(func(&x) { x < 3 })
 
-var counts: collections.HashMap<string, uint32> = collections.HashMap.New()
-for word in "a b a c b a".Split(' ') {
-    *counts.Entry(word.ToString()).OrInsert(0) += 1
+var counts: HashMap<string, uint32> = HashMap.new()
+for word in "a b a c b a".split(' ') {
+    *counts.entry(word.toString()).orInsert(0) += 1
 }
-var keys: Vec<&string> = counts.Keys().Collect()
-keys.Sort()
+var keys: Vec<&string> = counts.keys().collect()
+keys.sort()
 for k in keys {
     println("{k}: {}", counts[k])
 }
 
-for (i, x) in v.Iter().Enumerate() {
+for (i, x) in v.iter().enumerate() {
     println("{i} {x}")
 }
 
-let pairs: Vec<(int32, char)> = v.Iter().Copied().Zip("abc".Chars()).Collect()
+let pairs: Vec<(int32, char)> = v.iter().copied().zip("abc".chars()).collect()
 ```
 
 `vec[…]` builds a `Vec` the way Rust's `vec![…]` does: `vec[]`, `vec[1, 2, 3]`,
@@ -1496,15 +1501,15 @@ let money = format("{:.2}", 3.14159)
 let debug = format("{:?}", vec[1, 2])
 let pretty = format("{:#?}", point)
 
-var owned = string.From("hello")
-owned.PushStr(", world")
-let upper = owned.ToUppercase()
-let words: Vec<&string> = owned.Split(", ").Collect()
-let trimmed = "  hi  ".Trim()
-let has = owned.Contains("world")
-let firstChar = owned.Chars().Next()
-let bytes = owned.AsBytes()
-let joined = ["a", "b", "c"].Join("-")
+var owned = string.from("hello")
+owned.pushStr(", world")
+let upper = owned.toUppercase()
+let words: Vec<&string> = owned.split(", ").collect()
+let trimmed = "  hi  ".trim()
+let has = owned.contains("world")
+let firstChar = owned.chars().next()
+let bytes = owned.asBytes()
+let joined = ["a", "b", "c"].join("-")
 
 println("{s}")
 eprintln("warning: {}", upper)
@@ -1557,10 +1562,10 @@ struct Id(uint64)
 func fast(x: uint32) -> uint32 { x << 1 }
 
 @cfg(target_os = "macos")
-func platform() -> &[static] string { "mac" }
+func platform() -> &static string { "mac" }
 
 @cfg(not(target_os = "macos"))
-func platform() -> &[static] string { "other" }
+func platform() -> &static string { "other" }
 
 @deprecated(note = "use fast")
 func slow(x: uint32) -> uint32 { x * 2 }
@@ -1575,7 +1580,7 @@ func doubles() {
 ```
 
 Attributes are written with `@` and keep Rust's arguments. Rust's file-wide attributes
-(`#![…]`) go on the `package` declaration. Attribute names use Go casing (`deadCode`,
+(`#![…]`) go on the `package` declaration. Attribute names use `camelCase` (`deadCode`,
 `mustUse`, `exportName`), while configuration keys such as `target_os` keep Rust's
 spelling.
 
@@ -1613,19 +1618,19 @@ public struct User {
 }
 
 implement User {
-    public func ID(&self) -> uint64 { self.id }
-    package func ResetName(&mut self) { self.name.Clear() }
+    public func id(&self) -> uint64 { self.id }
+    package func resetName(&mut self) { self.name.clear() }
     func checksum(&self) -> uint64 { self.id * 31 }
 }
 
-public const MaxUsers: uint = 100
+public const maxUsers: uint = 100
 ```
 
-Names follow Go: public names are `PascalCase` (`ResetName`, `MaxUsers`), internal ones
-are `camelCase` (`checksum`, `nextID`), and initialisms stay capitalized (`ID`, `URL`).
-The keyword decides visibility; a lint checks that the casing matches. Rust's standard
-library keeps its words in Go casing: `read_to_string` is `ReadToString`, `unwrap_or` is
-`UnwrapOr`.
+Types, traits and enum variants are `PascalCase` (`User`, `Display`, `Status.Todo`).
+Everything else — functions, methods, fields, variables, constants, built-ins and
+attributes — is `camelCase` (`resetName`, `maxUsers`, `nextId`, `readToString`, `unwrapOr`),
+regardless of visibility. The keyword (`public`, `package`) decides visibility; a lint
+checks that the casing matches.
 
 ---
 
@@ -1662,29 +1667,27 @@ for value in rx {
 
 ```rust
 // Vertex
-import (
-    "std/sync"
-    "std/sync/mpsc"
-    "std/thread"
-)
+import { Arc, Mutex } from "std/sync"
+import "std/sync/mpsc"
+import "std/thread"
 
-let counter = sync.Arc.New(sync.Mutex.New(0))
+let counter = Arc.new(Mutex.new(0))
 var handles = vec[]
 for _ in 0..4 {
-    let counter = sync.Arc.Clone(&counter)
-    handles.Push(thread.Spawn(func() {
-        *counter.Lock().Unwrap() += 1
+    let counter = Arc.clone(&counter)
+    handles.push(thread.spawn(func() {
+        *counter.lock().unwrap() += 1
     }))
 }
 for h in handles {
-    h.Join().Unwrap()
+    h.join().unwrap()
 }
-println("{}", *counter.Lock().Unwrap())       // 4
+println("{}", *counter.lock().unwrap())       // 4
 
-let (tx, rx) = mpsc.Channel()
-thread.Spawn(func() {
+let (tx, rx) = mpsc.channel()
+thread.spawn(func() {
     for i in 0..3 {
-        tx.Send(i).Unwrap()
+        tx.send(i).unwrap()
     }
 })
 for value in rx {
@@ -1717,18 +1720,16 @@ async fn main() -> Result<(), reqwest::Error> {
 // Vertex
 package main
 
-import (
-    "net/http"
-    "std/task"
-)
+import "net/http"
+import "std/task"
 
 async func fetchLen(url: &string) -> Result<uint, http.Error> {
-    let body = http.Get(url).await?.Text().await?
-    Ok(body.Len())
+    let body = http.get(url).await?.text().await?
+    Ok(body.len())
 }
 
 async func main() -> Result<(), http.Error> {
-    let (a, b) = task.Join(
+    let (a, b) = task.join(
         fetchLen("https://example.com/a"),
         fetchLen("https://example.com/b"),
     ).await
@@ -1824,7 +1825,7 @@ type Compare = unsafe extern "C" func(*const c_void, *const c_void) -> c_int
 extern "C" func compareInt(a: *const c_void, b: *const c_void) -> c_int {
     let x = unsafe { *(a as *const c_int) }
     let y = unsafe { *(b as *const c_int) }
-    x.Cmp(&y) as c_int
+    x.cmp(&y) as c_int
 }
 
 @repr(c)
@@ -1835,19 +1836,19 @@ struct Point { x: float64; y: float64 }
 union Number { i: int64; f: float64 }
 
 @unsafe(exportName = "vx_add")
-public extern "C" func Add(a: c_int, b: c_int) -> c_int { a + b }
+public extern "C" func add(a: c_int, b: c_int) -> c_int { a + b }
 
 func main() -> Result<(), ffi.NulError> {
     println("{}", abs(-5))
-    let n = unsafe { strlen(c"hello".AsPtr()) }
-    unsafe { printf(c"%d apples\n".AsPtr(), 3) }
+    let n = unsafe { strlen(c"hello".asPtr()) }
+    unsafe { printf(c"%d apples\n".asPtr(), 3) }
 
     var nums = vec[5, 2, 9, 1]
-    unsafe { qsort(nums.AsMutPtr() as *mut c_void, nums.Len(), 4, compareInt) }
+    unsafe { qsort(nums.asMutPtr() as *mut c_void, nums.len(), 4, compareInt) }
 
-    let path = cstring.New("notes.txt")?
-    let f = unsafe { fopen(path.AsPtr(), c"r".AsPtr()) }
-    if !f.IsNull() {
+    let path = cstring.new("notes.txt")?
+    let f = unsafe { fopen(path.asPtr(), c"r".asPtr()) }
+    if !f.isNull() {
         unsafe { fclose(f) }
     }
 
@@ -1865,8 +1866,7 @@ Notes:
 - `func(T)` with `unsafe` or `extern` is a raw function pointer, such as a C callback.
   Without a qualifier, it's a function value (see
   [Function literals and `func` values](#function-literals-and-func-values)).
-- `exportName` gives C the usual snake_case symbol (`vx_add`) while the Vertex name stays
-  `Add`.
+- `exportName` gives C a custom symbol name (`vx_add`).
 - The idiom is Rust's: keep the raw declarations private and wrap them in a safe type
   with `implement Drop`.
 
@@ -1886,11 +1886,11 @@ public struct Point {
     public y: float64
 }
 
-public func Distance(a: &Point, b: &Point) -> float64 {
-    ((a.x - b.x).Powi(2) + (a.y - b.y).Powi(2)).Sqrt()
+public func distance(a: &Point, b: &Point) -> float64 {
+    ((a.x - b.x).powi(2) + (a.y - b.y).powi(2)).sqrt()
 }
 
-public func Parse(text: &string) -> Result<Vec<Point>, ParseError> { … }
+public func parse(text: &string) -> Result<Vec<Point>, ParseError> { … }
 ```
 
 ```rust
@@ -1919,9 +1919,9 @@ reserved.
 | `assert!(ok)`, `assert_eq!(a, b)` | `assert(ok)`, `assertEq(a, b)` |
 | `panic!("…")`, `todo!()`, `unreachable!()` | `panic("…")`, `todo()`, `unreachable()` |
 | `asm!(…)`, `naked_asm!(…)`, `global_asm!(…)` | `asm(…)`, `nakedAsm(…)`, `globalAsm(…)` |
-| `futures::join!(a, b)` | `task.Join(a, b).await` (an ordinary function) |
+| `futures::join!(a, b)` | `task.join(a, b).await` (an ordinary function) |
 | `matches!(x, Pat)` | `if let` or `match` |
-| `write!(f, "…", x)` | `f.WriteStr(&format("…", x))` |
+| `write!(f, "…", x)` | `f.writeStr(&format("…", x))` |
 
 There are no user-defined macros.
 
@@ -2105,13 +2105,11 @@ async fn main() -> Result<(), StoreError> {
 // Vertex
 package main
 
-import (
-    "std/collections"
-    "std/fs"
-    "std/io"
-    "std/task"
-    "net/http"
-)
+import { HashMap } from "std/collections"
+import "std/fs"
+import "std/io"
+import "std/task"
+import "net/http"
 
 @derive(Debug, Clone, Copy, PartialEq)
 enum Status { Todo; Doing; Done }
@@ -2124,11 +2122,11 @@ struct Task {
 }
 
 implement Task {
-    public func New(id: int64, title: string) -> Task {
+    public func new(id: int64, title: string) -> Task {
         Task { id, title, status: Status.Todo }
     }
-    public func IsOpen(&self) -> bool { self.status != Status.Done }
-    public func Advance(&mut self) {
+    public func isOpen(&self) -> bool { self.status != Status.Done }
+    public func advance(&mut self) {
         self.status = match self.status {
             Status.Todo => Status.Doing
             Status.Doing | Status.Done => Status.Done
@@ -2137,11 +2135,11 @@ implement Task {
 }
 
 trait Renderer {
-    func Render(&self) -> string
+    func render(&self) -> string
 }
 
 implement Renderer for Task {
-    func Render(&self) -> string {
+    func render(&self) -> string {
         let mark = match self.status {
             Status.Todo => " "
             Status.Doing => "~"
@@ -2160,105 +2158,105 @@ enum StoreError {
 }
 
 implement From<io.Error> for StoreError {
-    func From(e: io.Error) -> Self { StoreError.Io(e) }
+    func from(e: io.Error) -> Self { StoreError.Io(e) }
 }
 implement From<http.Error> for StoreError {
-    func From(e: http.Error) -> Self { StoreError.Http(e) }
+    func from(e: http.Error) -> Self { StoreError.Http(e) }
 }
 
 func parseLine(line: &string, n: int64) -> Result<Task, StoreError> {
-    let (rawID, title) = line.SplitOnce('|').OkOr(StoreError.Parse {
+    let (rawId, title) = line.splitOnce('|').okOr(StoreError.Parse {
         line: n,
-        message: "expected id|title".ToString(),
+        message: "expected id|title".toString(),
     })?
-    let id: int64 = rawID.Trim().Parse().MapErr(func(_) {
-        StoreError.Parse { line: n, message: format("bad id {rawID:?}") }
+    let id: int64 = rawId.trim().parse().mapErr(func(_) {
+        StoreError.Parse { line: n, message: format("bad id {rawId:?}") }
     })?
-    Ok(Task.New(id, title.Trim().ToString()))
+    Ok(Task.new(id, title.trim().toString()))
 }
 
 class Store {
-    tasks: collections.HashMap<int64, Task>
-    nextID: int64
+    tasks: HashMap<int64, Task>
+    nextId: int64
 }
 
 implement Store {
-    public func Open(path: &string) -> Result<Store, StoreError> {
-        let text = fs.ReadToString(path)?
-        var tasks = collections.HashMap.New()
-        for (i, line) in text.Lines().Enumerate() {
+    public func open(path: &string) -> Result<Store, StoreError> {
+        let text = fs.readToString(path)?
+        var tasks = HashMap.new()
+        for (i, line) in text.lines().enumerate() {
             let task = parseLine(line, i as int64 + 1)?
-            tasks.Insert(task.id, task)
+            tasks.insert(task.id, task)
         }
-        let nextID = tasks.Keys().Max().Copied().UnwrapOr(0) + 1
-        Ok(Store { tasks, nextID })
+        let nextId = tasks.keys().max().copied().unwrapOr(0) + 1
+        Ok(Store { tasks, nextId })
     }
 }
 
-public func (s: &Store) Add(title: string) -> int64 {
-    let id = s.nextID
-    s.nextID += 1
-    s.tasks.Insert(id, Task.New(id, title))
+public func (s: &Store) add(title: string) -> int64 {
+    let id = s.nextId
+    s.nextId += 1
+    s.tasks.insert(id, Task.new(id, title))
     id
 }
 
-public func (s: &Store) Advance(id: int64) -> Result<(), StoreError> {
-    let task = s.tasks.GetMut(&id).OkOr(StoreError.NotFound(id))?
-    task.Advance()
+public func (s: &Store) advance(id: int64) -> Result<(), StoreError> {
+    let task = s.tasks.getMut(&id).okOr(StoreError.NotFound(id))?
+    task.advance()
     Ok(())
 }
 
-public func (s: &Store) OpenTasks() -> Vec<Task> {
-    var open: Vec<Task> = s.tasks.Values()
-        .Filter(func(t) { t.IsOpen() })
-        .Cloned()
-        .Collect()
-    open.SortByKey(func(t) { t.id })
+public func (s: &Store) openTasks() -> Vec<Task> {
+    var open: Vec<Task> = s.tasks.values()
+        .filter(func(t) { t.isOpen() })
+        .cloned()
+        .collect()
+    open.sortByKey(func(t) { t.id })
     open
 }
 
 func printAll<T: Renderer>(items: &[T]) {
     for item in items {
-        println("{}", item.Render())
+        println("{}", item.render())
     }
 }
 
-func longestTitle(a: &Task, b: &Task) -> &[a, b] string {
-    if a.title.Len() >= b.title.Len() { &a.title } else { &b.title }
+func longestTitle<a>(a: &a Task, b: &a Task) -> &a string {
+    if a.title.len() >= b.title.len() { &a.title } else { &b.title }
 }
 
 async func syncRemote(store: &Store, url: &string) -> Result<uint, StoreError> {
-    let body = http.Get(url).await?.Text().await?
+    let body = http.get(url).await?.text().await?
     var added = 0
-    for line in body.Lines() {
-        store.Add(line.ToString())
+    for line in body.lines() {
+        store.add(line.toString())
         added += 1
     }
     Ok(added)
 }
 
 async func main() -> Result<(), StoreError> {
-    let store = Store.Open("tasks.txt")?
-    let id = store.Add("write the usage guide".ToString())
-    store.Advance(id)?
+    let store = Store.open("tasks.txt")?
+    let id = store.add("write the usage guide".toString())
+    store.advance(id)?
 
-    let (a, b) = task.Join(
+    let (a, b) = task.join(
         syncRemote(&store, "https://example.com/a.txt"),
         syncRemote(&store, "https://example.com/b.txt"),
     ).await
     println("synced {} + {} tasks", a?, b?)
 
-    let open = store.OpenTasks()
+    let open = store.openTasks()
     printAll(&open)
 
-    let doing = open.Iter().Filter(func(t) { t.status == Status.Doing }).Count()
+    let doing = open.iter().filter(func(t) { t.status == Status.Doing }).count()
     println("{doing} in progress")
 
-    if let [first, second, ..] = open.AsSlice() {
+    if let [first, second, ..] = open.asSlice() {
         println("longest title: {}", longestTitle(first, second))
     }
 
-    match store.Advance(999) {
+    match store.advance(999) {
         Ok(()) => println("advanced")
         Err(StoreError.NotFound(id)) => println("no task #{id}")
         Err(e) => return Err(e)
@@ -2273,15 +2271,15 @@ async func main() -> Result<(), StoreError> {
 
 | Rust | Vertex |
 | --- | --- |
-| `mod geo;` / `use std::fs;` | folder packages / `import "std/fs"` |
+| `mod geo;` / `use std::fs;` / `use a::B;` | folder packages / `import "std/fs"` / `import { B } from "a"` |
 | `fn f(x: i32) -> i32` | `func f(x: int32) -> int32` |
 | `let mut x = 0;` | `var x = 0` |
 | `pub`, `pub(crate)` | `public`, `package` |
 | `a::b::C` | `a.b.C` |
-| `"5".parse::<i64>()` | `let n: int64 = "5".Parse()` |
-| `impl T { … }` | `implement T { … }` or `func (t: &T) M()` |
+| `"5".parse::<i64>()` | `let n: int64 = "5".parse()` |
+| `impl T { … }` | `implement T { … }` or `func (t: &T) m()` |
 | `impl Tr for T { … }` | `implement Tr for T { … }` |
-| `T::new()` | `T.New()` |
+| `T::new()` | `T.new()` |
 | `&self`, `&mut self`, `self`, `mut self` | the same, and `var self` |
 | `#[derive(Debug)]` | `@derive(Debug)` |
 | `#![allow(dead_code)]` | `@allow(deadCode)` on `package` |
@@ -2289,9 +2287,10 @@ async func main() -> Result<(), StoreError> {
 | `enum E { A, B(i32) }` | `enum E { A; B(int32) }` |
 | `A => 1,` | `A => 1` |
 | `println!`, `format!`, `vec![…]` | `println`, `format`, `vec[…]` |
-| `fn f<'a>(x: &'a str) -> &'a str` | `func f(x: &string) -> &[x] string` |
-| `struct S<'a> { r: &'a str }` | `struct S<src: Origin> { r: &[src] string }` |
-| `&'static str` | `&[static] string` |
+| `fn f<'a>(x: &'a str) -> &'a str` | `func f<a>(x: &a string) -> &a string` |
+| `struct S<'a> { r: &'a str }` | `struct S<a> { r: &a string }` |
+| `&'static str` | `&static string` |
+| `'outer: loop { break 'outer }` | `outer: loop { break outer }` |
 | `\|x\| x + 1`, `move \|x\| …` | `func(x) { x + 1 }` |
 | `async move { … }` | `async { … }` |
 | `Rc<dyn Fn(u32)>` | `func(uint32)` |
@@ -2300,4 +2299,4 @@ async func main() -> Result<(), StoreError> {
 | `c_int`, `CString`, `&CStr` | `c_int`, `cstring`, `&cstring` |
 | `unsafe extern "C" { fn f(); type T; }` | `unsafe extern "C" { func f(); type T }` |
 | `#[unsafe(export_name = "x")]` | `@unsafe(exportName = "x")` |
-| `snake_case` | `PascalCase` (public), `camelCase` (internal) |
+| `snake_case` | `camelCase` (`PascalCase` for types, traits, variants) |

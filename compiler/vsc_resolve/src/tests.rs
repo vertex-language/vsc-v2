@@ -84,15 +84,17 @@ fn packages_and_imports() {
         &[
             (
                 "main.vs",
-                "package main\nimport (\n    geo \"./geometry\"\n    \"app/geometry/shapes\"\n)\n\
-                 func main() {\n    let p = geo.Zero()\n    let c = shapes.Circle { r: 1.0 }\n    let x = geo.secret\n}\n",
+                "package main\nimport geo from \"./geometry\"\nimport { Zero, secret } from \"./geometry\"\nimport \"app/geometry/shapes\"\nimport { Circle as Round } from \"app/geometry/shapes\"\n\
+                 func main() {\n    let p = geo.Zero()\n    let z = Zero()\n    let c = shapes.Circle { r: 1.0 }\n    let r = Round { r: 2.0 }\n    let x = geo.secret\n}\n",
             ),
             ("geometry/point.vs", "package geometry\npublic func Zero() -> int64 { 0 }\nconst secret: int64 = 1\n"),
             ("geometry/shapes/circle.vs", "package shapes\npublic struct Circle { public r: float64 }\n"),
         ],
     );
     has(&dump, "7:13 value `geo.Zero` -> function `app.geometry.Zero`");
-    has(&dump, "8:13 struct `shapes.Circle` -> struct `app.geometry.shapes.Circle`");
+    has(&dump, "8:13 value `Zero` -> function `app.geometry.Zero`");
+    has(&dump, "9:13 struct `shapes.Circle` -> struct `app.geometry.shapes.Circle`");
+    has(&dump, "10:13 struct `Round` -> struct `app.geometry.shapes.Circle`");
     assert!(errors.contains("error[E0603]: constant `secret` is private"), "{errors}");
 }
 
@@ -101,7 +103,7 @@ fn imports_are_per_file() {
     let (_, errors) = resolve(
         "perfile",
         &[
-            ("main.vs", "package main\nimport geo \"./geometry\"\nfunc a() -> int64 { geo.Zero() }\n"),
+            ("main.vs", "package main\nimport geo from \"./geometry\"\nfunc a() -> int64 { geo.Zero() }\n"),
             ("other.vs", "package main\nfunc b() -> int64 { geo.Zero() }\n"),
             ("geometry/g.vs", "package geometry\npublic func Zero() -> int64 { 0 }\n"),
         ],
@@ -113,7 +115,7 @@ fn imports_are_per_file() {
 
 #[test]
 fn missing_crates() {
-    let (_, errors) = one("package main\nimport (\n    \"std/fs\"\n    \"std/io\"\n    \"net/http\"\n    \"./nothere\"\n)\n");
+    let (_, errors) = one("package main\nimport \"std/fs\"\nimport \"std/io\"\nimport \"net/http\"\nimport \"./nothere\"\n");
     assert_eq!(errors.matches("error[E0463]: can't find crate for `std`").count(), 1, "{errors}");
     assert!(errors.contains("vsc-v2 can't build the standard library yet"), "{errors}");
     assert!(errors.contains("error[E0463]: can't find crate for `net`"), "{errors}");
@@ -150,7 +152,7 @@ fn duplicates() {
     let (_, errors) = resolve(
         "dups",
         &[
-            ("main.vs", "import geometry \"./geometry\"\nfunc f() {}\nstruct geometry {}\n"),
+            ("main.vs", "import geometry from \"./geometry\"\nfunc f() {}\nstruct geometry {}\n"),
             ("other.vs", "func f() {}\n"),
             ("geometry/g.vs", "package geometry\n"),
         ],
@@ -248,12 +250,12 @@ fn self_types() {
 #[test]
 fn item_barriers_and_labels() {
     let (_, errors) = one(
-        "func outer<T>(x: int64) {\n    func inner() -> int64 { x }\n    func generic(v: T) {}\n    'a: loop { break 'b }\n    let f = func() { break 'a }\n}\n",
+        "func outer<T>(x: int64) {\n    func inner() -> int64 { x }\n    func generic(v: T) {}\n    a: loop { break b }\n    let f = func() { break a }\n}\n",
     );
     assert!(errors.contains("error[E0434]: can't capture dynamic environment in a function item"), "{errors}");
     assert!(errors.contains("error[E0401]: can't use generic parameters from outer item"), "{errors}");
-    assert!(errors.contains("error[E0426]: use of undeclared label `'b`"), "{errors}");
-    assert!(errors.contains("error[E0426]: use of undeclared label `'a`"), "{errors}");
+    assert!(errors.contains("error[E0426]: use of undeclared label `b`"), "{errors}");
+    assert!(errors.contains("error[E0426]: use of undeclared label `a`"), "{errors}");
 }
 
 #[test]
@@ -278,7 +280,7 @@ fn guide_program_resolves_except_std() {
     // Without the standard library, the remaining errors are all std names.
     for line in errors.lines().filter(|l| l.starts_with("error")) {
         let ok = line.contains("can't find crate")
-            || ["Vec", "Option", "Result", "Ok", "Err", "Some", "None", "From", "Debug", "Clone", "Copy", "PartialEq"]
+            || ["Vec", "Option", "Result", "Ok", "Err", "Some", "None", "From", "Debug", "Clone", "Copy", "PartialEq", "HashMap"]
                 .iter()
                 .any(|n| line.contains(&format!("`{n}`")))
             || line.starts_with("error: aborting");

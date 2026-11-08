@@ -65,11 +65,23 @@ pub struct PackageDecl {
     pub span: Span,
 }
 
-/// `import "std/fs"` or `import geo "./geometry"`.
+/// One imported item in `import { HashMap, Error as IoError } from "std/io"`.
+#[derive(Clone, Debug)]
+pub struct ImportItem {
+    pub ident: Ident,
+    pub rename: Option<Ident>,
+    pub span: Span,
+}
+
+/// `import "std/fs"`, `import geo from "./geometry"`,
+/// `import { HashMap } from "std/collections"`, or
+/// `import http, { Error as HttpError } from "net/http"`.
 #[derive(Clone, Debug)]
 pub struct Import {
     /// The name the package is bound to, if given.
     pub rename: Option<Ident>,
+    /// Named items imported from the package (`{ … }`), if given.
+    pub items: Option<Vec<ImportItem>>,
     /// The import path, without quotes.
     pub path: Symbol,
     pub path_span: Span,

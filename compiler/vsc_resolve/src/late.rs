@@ -226,13 +226,11 @@ impl<'r, 'a> LateResolutionVisitor<'r, 'a> {
         if let Some(b) = self.r.module_binding(self.package, ident.name, ns) {
             return Some(b.res);
         }
+        if let Some(res) = self.r.import_res(self.package, self.file, ident.name, ns) {
+            return Some(res);
+        }
         match ns {
-            Namespace::TypeNS => {
-                if let Some(res) = self.r.import_res(self.package, self.file, ident.name) {
-                    return Some(res);
-                }
-                builtin_type(ident.name)
-            }
+            Namespace::TypeNS => builtin_type(ident.name),
             Namespace::ValueNS => builtin_value(ident.name),
         }
     }
@@ -651,12 +649,14 @@ impl<'r, 'a> LateResolutionVisitor<'r, 'a> {
     // -----------------------------------------------------------------------
 
     fn resolve_fn_decl_and_body(&mut self, decl: &FnDecl, body: Option<&Block>) {
-        // Exception 13: the parameters' names are origins in the signature
-        // and the body.
+        // Exception 13: parameter names not already declared as generic
+        // lifetime parameters can also be referenced as origins.
         self.origin_ribs.push(Rib::new(RibKind::Normal));
         for p in &decl.inputs {
             if let PatKind::Ident(_, ident, None) = p.pat.kind {
-                self.origin_ribs.last_mut().unwrap().bindings.insert(ident.name, OriginRes::FnParam(p.pat.id));
+                if self.lookup_origin(ident).is_none() {
+                    self.origin_ribs.last_mut().unwrap().bindings.insert(ident.name, OriginRes::FnParam(p.pat.id));
+                }
             }
         }
         self.with_rib(Namespace::ValueNS, RibKind::Normal, |this| {

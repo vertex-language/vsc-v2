@@ -47,8 +47,8 @@ fn package_and_imports() {
         "package main\n\nimport \"std/fs\"\n\nfunc main() {}\n",
     );
     assert_prints(
-        "package main\nimport (\n    \"std/collections\"\n    geo \"./geometry\"\n)\nfunc main() {}",
-        "package main\n\nimport (\n    \"std/collections\"\n    geo \"./geometry\"\n)\n\nfunc main() {}\n",
+        "package main\nimport { HashMap } from \"std/collections\"\nimport geo from \"./geometry\"\nimport http, { Error as HttpError } from \"net/http\"\nfunc main() {}",
+        "package main\n\nimport { HashMap } from \"std/collections\"\nimport geo from \"./geometry\"\nimport http, { Error as HttpError } from \"net/http\"\n\nfunc main() {}\n",
     );
 }
 
@@ -241,8 +241,8 @@ impl AssocExt for vsc_ast::AssocItemKind {
 #[test]
 fn self_params() {
     assert_prints(
-        "implement T {\n    func a(self) {}\n    func b(var self) {}\n    func c(&mut self) {}\n    func d(&[a] self) {}\n    func e(self: Box<Self>) {}\n}\n",
-        "implement T {\n    func a(self) {}\n\n    func b(var self) {}\n\n    func c(&mut self) {}\n\n    func d(&[a] self) {}\n\n    func e(self: Box<Self>) {}\n}\n",
+        "implement T {\n    func a(self) {}\n    func b(var self) {}\n    func c(&mut self) {}\n    func d(&a self) {}\n    func e(self: Box<Self>) {}\n}\n",
+        "implement T {\n    func a(self) {}\n\n    func b(var self) {}\n\n    func c(&mut self) {}\n\n    func d(&a self) {}\n\n    func e(self: Box<Self>) {}\n}\n",
     );
 }
 
@@ -270,7 +270,7 @@ fn rust_spellings_are_reported() {
     assert_error("func f() { let mut x = 1 }\n", "mutable bindings are declared with `var` in Vertex");
     assert_error("#[derive(Debug)]\nstruct S\n", "attributes are written `@name` in Vertex, not `#[name]`");
     assert_error("func f() { let x = a::b }\n", "paths are separated by `.` in Vertex, not `::`");
-    assert_error("func f() -> &'static string {}\n", "Vertex has no lifetimes");
+    assert_error("func f() -> &'static string {}\n", "lifetimes have no `'` in Vertex");
     assert_error("func f() { let g = move |x| x }\n", "Vertex has no `move`");
 }
 
@@ -281,14 +281,14 @@ fn rust_spellings_are_reported() {
 #[test]
 fn origins_and_slices() {
     assert_prints(
-        "func longest(a: &string, b: &string) -> &[a, b] string { a }\nfunc part(v: &[uint8]) -> &[static] string { \"x\" }\n",
-        "func longest(a: &string, b: &string) -> &[a, b] string {\n    a\n}\n\nfunc part(v: &[uint8]) -> &[static] string {\n    \"x\"\n}\n",
+        "func longest<a>(a: &a string, b: &a string) -> &a string { a }\nfunc part(v: &[uint8]) -> &static string { \"x\" }\n",
+        "func longest<a>(a: &a string, b: &a string) -> &a string {\n    a\n}\n\nfunc part(v: &[uint8]) -> &static string {\n    \"x\"\n}\n",
     );
     assert_prints(
-        "struct Highlight<src: Origin> {\n    text: &[src] string\n}\n",
-        "struct Highlight<src: Origin> {\n    text: &[src] string\n}\n",
+        "struct Highlight<src> {\n    text: &src string\n}\n",
+        "struct Highlight<src> {\n    text: &src string\n}\n",
     );
-    assert_prints("func f<a: Origin + [b], b: Origin>() {}\n", "func f<a: Origin + [b], b: Origin>() {}\n");
+    assert_prints("func f<a: b, b>() {}\n", "func f<a: b, b>() {}\n");
 }
 
 #[test]
@@ -349,8 +349,8 @@ fn vec_and_arrays() {
 #[test]
 fn control_flow() {
     assert_prints(
-        "func f() {\n    'outer: for row in &grid {\n        for &cell in row {\n            if cell == 0 { break 'outer }\n        }\n    }\n    let found = loop {\n        if let Some(x) = next() { break x }\n    }\n    while let Some(top) = stack.Pop() { println(\"{top}\") }\n}\n",
-        "func f() {\n    'outer: for row in &grid {\n        for &cell in row {\n            if cell == 0 {\n                break 'outer\n            }\n        }\n    }\n    let found = loop {\n        if let Some(x) = next() {\n            break x\n        }\n    }\n    while let Some(top) = stack.Pop() {\n        println(\"{top}\")\n    }\n}\n",
+        "func f() {\n    outer: for row in &grid {\n        for &cell in row {\n            if cell == 0 { break outer }\n        }\n    }\n    let found = loop {\n        if let Some(x) = next() { break x }\n    }\n    while let Some(top) = stack.Pop() { println(\"{top}\") }\n}\n",
+        "func f() {\n    outer: for row in &grid {\n        for &cell in row {\n            if cell == 0 {\n                break outer\n            }\n        }\n    }\n    let found = loop {\n        if let Some(x) = next() {\n            break x\n        }\n    }\n    while let Some(top) = stack.Pop() {\n        println(\"{top}\")\n    }\n}\n",
     );
 }
 

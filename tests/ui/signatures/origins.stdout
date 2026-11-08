@@ -2,16 +2,16 @@ struct String
     len: uint
 struct Func<F>
     f: F
-struct Highlight<src: Origin>
-    text: &[src] string
-implement<src: Origin> Highlight<[src]>
-fn Highlight.Text: func(&Highlight<[src]>) -> &[src] string
-fn Highlight.Self_: func(&Highlight<[src]>) -> &string
+struct Highlight<src>
+    text: &src string
+implement<src> Highlight<src>
+fn Highlight.Text: func(&Highlight<src>) -> &src string
+fn Highlight.Self_: func(&Highlight<src>) -> &string
 fn first: func(&string) -> &string
-fn named: func(&string, &[b] string) -> &[b] string
-fn longest: func(&[a] string, &[b] string) -> &[a, b] string
-fn forever: func() -> &[static] string
-fn pick<x: Origin, y: Origin>: func(&[x] int64, &[y] int64) -> &[x] int64
-    where x: [y]
+fn named: func(&string, &b string) -> &b string
+fn longest: func(&a string, &b string) -> &a, b string
+fn forever: func() -> &static string
+fn pick<x, y>: func(&x int64, &y int64) -> &x int64
+    where x: y
 fn callback: func(func(&string) -> &string)
-const Greeting: &[static] string
+const Greeting: &static string

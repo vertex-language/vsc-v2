@@ -119,20 +119,9 @@ impl Printer {
             if file.package.is_some() {
                 self.nl();
             }
-            if file.imports.len() == 1 {
+            for imp in &file.imports {
                 self.w("import ");
-                self.import(&file.imports[0]);
-                self.nl();
-            } else {
-                self.w("import (");
-                self.indent += 1;
-                for imp in &file.imports {
-                    self.nl();
-                    self.import(imp);
-                }
-                self.indent -= 1;
-                self.nl();
-                self.w(")");
+                self.import(imp);
                 self.nl();
             }
         }
@@ -148,7 +137,27 @@ impl Printer {
     fn import(&mut self, imp: &Import) {
         if let Some(name) = imp.rename {
             self.ident(name);
-            self.w(" ");
+            if imp.items.is_some() {
+                self.w(", ");
+            }
+        }
+        if let Some(items) = &imp.items {
+            if items.is_empty() {
+                self.w("{}");
+            } else {
+                self.w("{ ");
+                self.comma_sep(items, |p, item| {
+                    p.ident(item.ident);
+                    if let Some(rename) = item.rename {
+                        p.w(" as ");
+                        p.ident(rename);
+                    }
+                });
+                self.w(" }");
+            }
+        }
+        if imp.rename.is_some() || imp.items.is_some() {
+            self.w(" from ");
         }
         self.w("\"");
         self.w(imp.path.as_str());
@@ -605,10 +614,9 @@ impl Printer {
         match &param.kind {
             GenericParamKind::Origin => {
                 self.ident(param.ident);
-                self.w(": Origin");
-                for b in &param.bounds {
-                    self.w(" + ");
-                    self.bound(b);
+                if !param.bounds.is_empty() {
+                    self.w(": ");
+                    self.bounds(&param.bounds);
                 }
             }
             GenericParamKind::Type { default } => {
@@ -692,9 +700,13 @@ impl Printer {
     }
 
     fn origin_ref(&mut self, o: &OriginRef) {
-        self.w("[");
-        self.comma_sep(&o.origins, |p, i| p.w(i.name.as_str()));
-        self.w("]");
+        if o.origins.len() == 1 {
+            self.w(o.origins[0].name.as_str());
+        } else {
+            self.w("[");
+            self.comma_sep(&o.origins, |p, i| p.w(i.name.as_str()));
+            self.w("]");
+        }
     }
 
     // -----------------------------------------------------------------------

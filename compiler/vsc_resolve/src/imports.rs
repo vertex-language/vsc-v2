@@ -57,37 +57,102 @@ fn resolve_import(r: &mut Resolver<'_>, module: LocalDefId, file: usize, import:
         }
     };
 
-    let name = match import.rename {
-        Some(rename) if rename.name == kw::Underscore => return,
-        Some(rename) => rename,
-        None => {
-            let last = segments.last().unwrap();
-            let lo = vsc_span::BytePos(import.path_span.hi().0 - 1 - last.len() as u32);
-            Ident::new(Symbol::intern(last), vsc_span::Span::new(lo, vsc_span::BytePos(lo.0 + last.len() as u32)))
+    if import.rename.is_some() || import.items.is_none() {
+        let name = match import.rename {
+            Some(rename) if rename.name == kw::Underscore => None,
+            Some(rename) => Some(rename),
+            None => {
+                let last = segments.last().unwrap();
+                let lo = vsc_span::BytePos(import.path_span.hi().0 - 1 - last.len() as u32);
+                Some(Ident::new(Symbol::intern(last), vsc_span::Span::new(lo, vsc_span::BytePos(lo.0 + last.len() as u32))))
+            }
+        };
+        if let Some(name) = name {
+            bind_import(r, module, file, name, Namespace::TypeNS, res, import.span);
         }
-    };
+    }
 
-    if let Some(item) = r.modules[&module].bindings.get(&(name.name, Namespace::TypeNS)).copied() {
+    if let Some(items) = &import.items {
+        for item in items {
+            let bound = item.rename.unwrap_or(item.ident);
+            match res {
+                Res::Def(DefKind::Mod, def) => {
+                    let target = def.expect_local();
+                    let ty_b = r.module_binding(target, item.ident.name, Namespace::TypeNS);
+                    let val_b = r.module_binding(target, item.ident.name, Namespace::ValueNS);
+                    if ty_b.is_none() && val_b.is_none() {
+                        let pkg = r.modules[&target].name;
+                        r.dcx()
+                            .struct_span_err(item.span, format!("unresolved import `{}`", item.ident))
+                            .with_code(ErrCode(432))
+                            .with_span_label(item.span, format!("no `{}` in `{pkg}`", item.ident))
+                            .emit();
+                        if bound.name != kw::Underscore {
+                            bind_import(r, module, file, bound, Namespace::TypeNS, Res::Err, item.span);
+                            bind_import(r, module, file, bound, Namespace::ValueNS, Res::Err, item.span);
+                        }
+                        continue;
+                    }
+                    let mut reported_priv = false;
+                    for (ns, b) in [(Namespace::TypeNS, ty_b), (Namespace::ValueNS, val_b)] {
+                        let Some(b) = b else { continue };
+                        if !reported_priv && !r.is_accessible_from(b.vis, module) {
+                            reported_priv = true;
+                            r.dcx()
+                                .struct_span_err(item.ident.span, format!("{} `{}` is private", b.res.descr(), item.ident))
+                                .with_code(ErrCode(603))
+                                .with_span_label(item.ident.span, format!("private {}", b.res.descr()))
+                                .with_span_note(b.span, format!("the {} `{}` is defined here", b.res.descr(), item.ident))
+                                .with_help("make it `public`, or `package` to share it within the crate")
+                                .emit();
+                        }
+                        if bound.name != kw::Underscore {
+                            bind_import(r, module, file, bound, ns, b.res, item.span);
+                        }
+                    }
+                }
+                Res::Err => {
+                    if bound.name != kw::Underscore {
+                        bind_import(r, module, file, bound, Namespace::TypeNS, Res::Err, item.span);
+                        bind_import(r, module, file, bound, Namespace::ValueNS, Res::Err, item.span);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+fn bind_import(
+    r: &mut Resolver<'_>,
+    module: LocalDefId,
+    file: usize,
+    name: Ident,
+    ns: Namespace,
+    res: Res,
+    span: vsc_span::Span,
+) {
+    if let Some(item) = r.modules[&module].bindings.get(&(name.name, ns)).copied() {
         r.dcx()
-            .struct_span_err(import.span, format!("the name `{name}` is defined multiple times"))
+            .struct_span_err(span, format!("the name `{name}` is defined multiple times"))
             .with_code(ErrCode(255))
             .with_span_label(item.span, format!("the {} `{name}` is defined here", item.res.descr()))
-            .with_span_label(import.span, format!("`{name}` imported here"))
-            .with_help("rename the import: `import other \"path\"`")
+            .with_span_label(span, format!("`{name}` imported here"))
+            .with_help("rename the import: `import other from \"path\"`")
             .emit();
         return;
     }
     let scope = &mut r.modules.get_mut(&module).unwrap().files[file];
-    if let Some(&(_, prev)) = scope.imports.get(&name.name) {
+    if let Some(&(_, prev)) = scope.imports.get(&(name.name, ns)) {
         r.dcx()
-            .struct_span_err(import.span, format!("the name `{name}` is imported multiple times"))
+            .struct_span_err(span, format!("the name `{name}` is imported multiple times"))
             .with_code(ErrCode(252))
             .with_span_label(prev, format!("previous import of `{name}` here"))
-            .with_span_label(import.span, format!("`{name}` reimported here"))
+            .with_span_label(span, format!("`{name}` reimported here"))
             .emit();
         return;
     }
-    scope.imports.insert(name.name, (res, import.span));
+    scope.imports.insert((name.name, ns), (res, span));
 }
 
 fn walk_children(r: &mut Resolver<'_>, start: LocalDefId, segments: &[&str], import: &Import) -> Res {
