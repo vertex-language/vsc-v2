@@ -26,6 +26,7 @@ mod coercion;
 pub mod dump;
 mod expr;
 mod method;
+mod op;
 mod pat;
 mod upvar;
 

@@ -111,6 +111,21 @@ impl<'a, 'tcx> Interpreter<'a, 'tcx> {
                 self.write(&loc, v)?;
                 self.option(popped)
             }
+            "vec_index" | "vec_index_mut" => {
+                // A pointer to the element, after Rust's bounds check.
+                let loc = self.deref_value(&vals[0])?;
+                let len = match self.read(&loc)? {
+                    Value::Vec(xs) => xs.len(),
+                    _ => return self.ub("indexing a value that isn't a vector"),
+                };
+                let i = self.as_usize(&vals[1])?;
+                if i >= len {
+                    return self.panic(format!("index out of bounds: the len is {len} but the index is {i}"));
+                }
+                let mut path = loc.path.clone();
+                path.push(i);
+                Value::Ptr(Pointer { alloc: loc.alloc, path })
+            }
             "slice_len" => match &vals[0] {
                 Value::SlicePtr { len, .. } => self.usize(*len),
                 _ => return self.ub("`sliceLen` of a value that isn't a slice"),
@@ -204,6 +219,97 @@ impl<'a, 'tcx> Interpreter<'a, 'tcx> {
             }
             _ => return Ok(None),
         }))
+    }
+
+    /// The operator traits' methods for the primitive types, which the
+    /// compiler provides: `None` if `def` isn't one of them.
+    pub fn call_builtin_op(&mut self, def: DefId, args: GenericArgsRef<'tcx>, vals: &[Value<'tcx>]) -> InterpResult<Option<Value<'tcx>>> {
+        use vsc_middle::mir::{BinOp, UnOp};
+        let tcx = self.tcx;
+        let Some(parent) = tcx.opt_parent(def) else { return Ok(None) };
+        if vsc_trait_selection::op_trait(tcx, parent).is_none() {
+            return Ok(None);
+        }
+        let Some(GenericArg::Type(self_ty)) = args.first() else { return Ok(None) };
+        if !matches!(self_ty.kind(), ty::TyKind::Int(_) | ty::TyKind::Uint(_) | ty::TyKind::Float(_) | ty::TyKind::Bool | ty::TyKind::Char) {
+            return Ok(None);
+        }
+        let name = tcx.item_name(def);
+        let name = name.as_str();
+        let (base, assign) = match name.strip_suffix("Assign") {
+            Some(b) => (b, true),
+            None => (name, false),
+        };
+        let arith = |b: &str| -> Option<BinOp> {
+            Some(match b {
+                "add" => BinOp::Add,
+                "sub" => BinOp::Sub,
+                "mul" => BinOp::Mul,
+                "div" => BinOp::Div,
+                "rem" => BinOp::Rem,
+                "bitand" => BinOp::BitAnd,
+                "bitor" => BinOp::BitOr,
+                "bitxor" => BinOp::BitXor,
+                "shl" => BinOp::Shl,
+                "shr" => BinOp::Shr,
+                _ => return None,
+            })
+        };
+        let apply = |this: &Self, op: BinOp, l: Value<'tcx>, r: Value<'tcx>| -> InterpResult<Value<'tcx>> {
+            if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul) {
+                let (v, overflow) = this.checked_op(op, l, r)?;
+                if overflow {
+                    let what = match op {
+                        BinOp::Add => "add",
+                        BinOp::Sub => "subtract",
+                        _ => "multiply",
+                    };
+                    return this.panic(format!("attempt to {what} with overflow"));
+                }
+                Ok(v)
+            } else {
+                this.binary_op(op, l, r)
+            }
+        };
+        if let Some(op) = arith(base) {
+            if assign {
+                let loc = self.deref_value(&vals[0])?;
+                let cur = self.read(&loc)?;
+                let v = apply(self, op, cur, vals[1].clone())?;
+                self.write(&loc, v)?;
+                return Ok(Some(Value::unit()));
+            }
+            return apply(self, op, vals[0].clone(), vals[1].clone()).map(Some);
+        }
+        let v = match name {
+            "neg" => self.unary_op(UnOp::Neg, vals[0].clone())?,
+            "not" => self.unary_op(UnOp::Not, vals[0].clone())?,
+            "eq" | "ne" | "lt" | "le" | "gt" | "ge" | "partialCmp" => {
+                let l = self.read(&self.deref_value(&vals[0])?)?;
+                let r = self.read(&self.deref_value(&vals[1])?)?;
+                let op = match name {
+                    "eq" => BinOp::Eq,
+                    "ne" => BinOp::Ne,
+                    "lt" => BinOp::Lt,
+                    "le" => BinOp::Le,
+                    "gt" => BinOp::Gt,
+                    "ge" => BinOp::Ge,
+                    _ => {
+                        // `Option<Ordering>`: `None` only for NaN.
+                        let less = matches!(self.binary_op(BinOp::Lt, l.clone(), r.clone())?, Value::Bool(true));
+                        let equal = matches!(self.binary_op(BinOp::Eq, l.clone(), r.clone())?, Value::Bool(true));
+                        let greater = matches!(self.binary_op(BinOp::Gt, l, r)?, Value::Bool(true));
+                        let name = if less { "Less" } else if equal { "Equal" } else if greater { "Greater" } else { return Ok(Some(self.option(None))) };
+                        let Some(ordering) = tcx.lang_items().get(LangItem::Ordering) else { return self.unsupported("`partialCmp` without the `Ordering` lang item") };
+                        let variant = tcx.adt_def(ordering).variants().iter().position(|v| v.name.as_str() == name).unwrap_or(0);
+                        return Ok(Some(self.option(Some(Value::Adt { variant, fields: Vec::new() }))));
+                    }
+                };
+                self.binary_op(op, l, r)?
+            }
+            _ => return Ok(None),
+        };
+        Ok(Some(v))
     }
 
     /// `Some(v)` or `None`, for the `Option` lang items.

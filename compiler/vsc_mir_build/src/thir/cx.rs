@@ -75,6 +75,22 @@ impl<'tcx> Cx<'tcx> {
         self.thir.exprs.push(Expr { kind, ty, span })
     }
 
+    /// Did type checking resolve this operator to a trait method?
+    fn is_overloaded(&self, e: &hir::Expr) -> bool {
+        self.results.type_dependent_defs.contains_key(&e.hir_id)
+    }
+
+    /// An operator resolved to a trait method: a call of it.
+    fn overloaded_call(&mut self, e: &hir::Expr, args: Vec<ExprId>) -> ExprKind<'tcx> {
+        let tcx = self.tcx;
+        let fun_ty = match (self.results.type_dependent_defs.get(&e.hir_id), self.results.node_args.get(&e.hir_id)) {
+            (Some(&(_, def)), Some(&a)) => tcx.mk_fn_def(def, a),
+            _ => tcx.types.error,
+        };
+        let fun = self.push(ExprKind::ZstLiteral, fun_ty, e.span);
+        ExprKind::Call { fun, args, fn_span: e.span }
+    }
+
     pub fn mirror_exprs(&mut self, es: &[hir::Expr]) -> Vec<ExprId> {
         es.iter().map(|e| self.mirror_expr(e)).collect()
     }
@@ -203,11 +219,23 @@ impl<'tcx> Cx<'tcx> {
             hir::ExprKind::Binary(op, a, b) => match op.node {
                 BinOpKind::And => ExprKind::LogicalOp { op: LogicalOp::And, lhs: self.mirror_expr(a), rhs: self.mirror_expr(b) },
                 BinOpKind::Or => ExprKind::LogicalOp { op: LogicalOp::Or, lhs: self.mirror_expr(a), rhs: self.mirror_expr(b) },
+                _ if self.is_overloaded(e) => {
+                    let args = vec![self.mirror_expr(a), self.mirror_expr(b)];
+                    self.overloaded_call(e, args)
+                }
                 op => ExprKind::Binary { op, lhs: self.mirror_expr(a), rhs: self.mirror_expr(b) },
             },
+            hir::ExprKind::AssignOp(_, a, b) if self.is_overloaded(e) => {
+                let args = vec![self.mirror_expr(a), self.mirror_expr(b)];
+                self.overloaded_call(e, args)
+            }
             hir::ExprKind::AssignOp(op, a, b) => ExprKind::AssignOp { op: op.node, lhs: self.mirror_expr(a), rhs: self.mirror_expr(b) },
             hir::ExprKind::Assign(a, b, _) => ExprKind::Assign { lhs: self.mirror_expr(a), rhs: self.mirror_expr(b) },
             hir::ExprKind::Unary(UnOp::Deref, x) => ExprKind::Deref { arg: self.mirror_expr(x) },
+            hir::ExprKind::Unary(_, x) if self.is_overloaded(e) => {
+                let args = vec![self.mirror_expr(x)];
+                self.overloaded_call(e, args)
+            }
             hir::ExprKind::Unary(op, x) => ExprKind::Unary { op: *op, arg: self.mirror_expr(x) },
             hir::ExprKind::Cast(x, _) => ExprKind::Cast { source: self.mirror_expr(x) },
             hir::ExprKind::DropTemps(x) => ExprKind::Use { source: self.mirror_expr(x) },
@@ -259,6 +287,16 @@ impl<'tcx> Cx<'tcx> {
                 let lhs = self.mirror_expr(base);
                 let field = self.results.field_indices.get(&e.hir_id).copied().unwrap_or(0);
                 ExprKind::Field { lhs, variant_index: 0, field }
+            }
+            hir::ExprKind::Index(base, idx, _) if self.is_overloaded(e) => {
+                // `*Index.index(&base, idx)`, or `IndexMut.indexMut`.
+                let args = vec![self.mirror_expr(base), self.mirror_expr(idx)];
+                let call = self.overloaded_call(e, args);
+                let is_mut = self.results.type_dependent_defs.get(&e.hir_id).is_some_and(|&(_, m)| tcx.is_lang_item(tcx.parent(m), vsc_hir::LangItem::IndexMut));
+                let m = if is_mut { ty::Mutability::Mut } else { ty::Mutability::Not };
+                let ref_ty = tcx.mk_ref(tcx.regions.re_erased, ty, m);
+                let arg = self.push(call, ref_ty, e.span);
+                ExprKind::Deref { arg }
             }
             hir::ExprKind::Index(base, idx, _) => ExprKind::Index { lhs: self.mirror_expr(base), index: self.mirror_expr(idx) },
             hir::ExprKind::AddrOf(HirBorrowKind::Ref, m, x) => ExprKind::Borrow {

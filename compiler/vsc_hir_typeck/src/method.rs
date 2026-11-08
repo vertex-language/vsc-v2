@@ -273,6 +273,9 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
             adj.push(Adjustment { kind: Adjust::Unsize, target: pick.adjusted_self });
         }
         self.write_adjustments(recv.hir_id, adj);
+        if pick.autoref == Some(Mutability::Mut) {
+            self.convert_place_to_mutable(recv);
+        }
         self.write_resolution(e.hir_id, DefKind::AssocFn, pick.item);
         self.write_args(e.hir_id, pick.args);
         self.register_predicates(pick.item, pick.args, span);

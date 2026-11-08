@@ -1,0 +1,40 @@
+error[E0369]: cannot add `T` to `T`
+ --> $DIR/operators.vs:9:5
+  |
+9 |     a + b //~ ERROR cannot add `T` to `T`
+  |     ^^^^^
+  |
+  = help: consider restricting type parameter `T` with trait `Add`: `T: Add<Output = T>`
+
+error[E0369]: cannot add `V` to `V`
+  --> $DIR/operators.vs:15:13
+   |
+15 |     let c = a + b //~ ERROR cannot add `V` to `V`
+   |             ^^^^^
+   |
+   = note: an implementation of `Add` might be missing for `V`
+
+error[E0369]: binary operation `==` cannot be applied to type `V`
+  --> $DIR/operators.vs:16:13
+   |
+16 |     let d = a == b //~ ERROR binary operation `==` cannot be applied to type `V`
+   |             ^^^^^^
+   |
+   = note: an implementation of `PartialEq` might be missing for `V`
+
+error[E0600]: cannot apply unary operator `-` to type `V`
+  --> $DIR/operators.vs:17:13
+   |
+17 |     let e = -a //~ ERROR cannot apply unary operator `-` to type `V`
+   |             ^^
+   |
+   = note: an implementation of `Neg` might be missing for `V`
+
+error[E0608]: cannot index into a value of type `Vec<{integer}>`
+  --> $DIR/operators.vs:19:13
+   |
+19 |     let f = v[true] //~ ERROR cannot index into a value of type `Vec<{integer}>`
+   |             ^^^^^^^
+
+error: aborting due to 5 previous errors
+

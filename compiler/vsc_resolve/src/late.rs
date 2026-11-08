@@ -991,9 +991,10 @@ impl<'ast> Visitor<'ast> for LateResolutionVisitor<'_, '_> {
             }
             ItemKind::Trait(t) => {
                 let def = this.r.local_def_id(item.id).to_def_id();
-                this.with_generics(&t.generics, &[], |this| {
-                    this.with_rib(Namespace::TypeNS, RibKind::Normal, |this| {
-                        this.bind(Namespace::TypeNS, kw::SelfUpper, Res::SelfTyParam { trait_: def });
+                // `Self` is in scope in the generics too: `trait Add<Rhs = Self>`.
+                this.with_rib(Namespace::TypeNS, RibKind::Normal, |this| {
+                    this.bind(Namespace::TypeNS, kw::SelfUpper, Res::SelfTyParam { trait_: def });
+                    this.with_generics(&t.generics, &[], |this| {
                         for b in &t.bounds {
                             this.visit_param_bound(b);
                         }

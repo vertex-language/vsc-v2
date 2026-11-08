@@ -70,7 +70,7 @@ error[E0369]: binary operation `==` cannot be applied to type `Point`
 22 |     let j = p == p //~ ERROR binary operation `==` cannot be applied to type `Point`
    |             ^^^^^^
    |
-   = note: operators on other types use the operator traits (`Add`, `PartialEq`, …), which come from the standard library; vsc-v2 can't build it yet
+   = note: an implementation of `PartialEq` might be missing for `Point`
 
 error[E0070]: invalid left-hand side of assignment
   --> $DIR/errors.vs:24:5

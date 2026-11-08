@@ -695,7 +695,11 @@ impl<'a, 'tcx> Interpreter<'a, 'tcx> {
                     let callee = vals.pop().unwrap();
                     return self.call(callee, untupled, dest, target);
                 }
-                if let Some(v) = self.call_intrinsic(def, args, &vals)? {
+                let builtin = match self.call_builtin_op(def, args, &vals)? {
+                    Some(v) => Some(v),
+                    None => self.call_intrinsic(def, args, &vals)?,
+                };
+                if let Some(v) = builtin {
                     self.write(&dest, v)?;
                     match target {
                         Some(t) => self.jump(t),

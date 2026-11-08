@@ -90,6 +90,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                 // The left side is checked once, by the operator; checking
                 // it again would record its adjustments twice.
                 self.check_binop(e, op.node, a, b, true);
+                self.convert_place_to_mutable(a);
                 if !is_place(a) {
                     self.err(a.span, "invalid left-hand side of assignment")
                         .with_code(ErrCode(67))
@@ -151,6 +152,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
             }
             hir::ExprKind::Assign(lhs, rhs, _) => {
                 let lt = self.check_place(lhs);
+                self.convert_place_to_mutable(lhs);
                 self.check_expr_coercible_to_type(rhs, lt);
                 tcx.types.unit
             }
@@ -171,6 +173,9 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                     _ => Expectation::None,
                 };
                 let t = self.check_expr_with_expectation(x, inner_expected);
+                if m.is_mut() {
+                    self.convert_place_to_mutable(x);
+                }
                 match kind {
                     BorrowKind::Ref => tcx.mk_ref(tcx.regions.re_erased, t, *m),
                     BorrowKind::Raw => tcx.mk_ty(TyKind::RawPtr(t, *m)),
@@ -802,6 +807,9 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
             }
         };
         if !ok {
+            if let Some(t) = self.check_overloaded_binop(e, op, a, b, self.infcx.shallow_resolve(l), self.infcx.shallow_resolve(r), is_assign) {
+                return t;
+            }
             let (ls, rs) = (self.ty_str(l), self.ty_str(r));
             let msg = match op {
                 BinOpKind::Add => format!("cannot add `{rs}` to `{ls}`"),
@@ -814,9 +822,37 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
             };
             let mut err = self.err(e.span, msg).with_code(ErrCode(if is_assign { 368 } else { 369 }));
             if !(is_scalar(l) && is_scalar(r)) {
-                err = err.with_note(
-                    "operators on other types use the operator traits (`Add`, `PartialEq`, …), which come from the standard library; vsc-v2 can't build it yet",
-                );
+                let item = match (op, is_assign) {
+                    (BinOpKind::Eq | BinOpKind::Ne, _) => "PartialEq",
+                    (BinOpKind::Lt | BinOpKind::Le | BinOpKind::Gt | BinOpKind::Ge, _) => "PartialOrd",
+                    (BinOpKind::Add, false) => "Add",
+                    (BinOpKind::Sub, false) => "Sub",
+                    (BinOpKind::Mul, false) => "Mul",
+                    (BinOpKind::Div, false) => "Div",
+                    (BinOpKind::Rem, false) => "Rem",
+                    (BinOpKind::BitAnd, false) => "BitAnd",
+                    (BinOpKind::BitOr, false) => "BitOr",
+                    (BinOpKind::BitXor, false) => "BitXor",
+                    (BinOpKind::Shl, false) => "Shl",
+                    (BinOpKind::Shr, false) => "Shr",
+                    (BinOpKind::Add, true) => "AddAssign",
+                    (BinOpKind::Sub, true) => "SubAssign",
+                    (BinOpKind::Mul, true) => "MulAssign",
+                    (BinOpKind::Div, true) => "DivAssign",
+                    (BinOpKind::Rem, true) => "RemAssign",
+                    (BinOpKind::BitAnd, true) => "BitAndAssign",
+                    (BinOpKind::BitOr, true) => "BitOrAssign",
+                    (BinOpKind::BitXor, true) => "BitXorAssign",
+                    (BinOpKind::Shl, true) => "ShlAssign",
+                    (BinOpKind::Shr, true) => "ShrAssign",
+                    _ => "the operator's trait",
+                };
+                if let TyKind::Param(_) = self.infcx.shallow_resolve(l).kind() {
+                    let bound = if op.is_comparison() || is_assign { format!("{ls}: {item}") } else { format!("{ls}: {item}<Output = {ls}>") };
+                    err = err.with_help(format!("consider restricting type parameter `{ls}` with trait `{item}`: `{bound}`"));
+                } else {
+                    err = err.with_note(format!("an implementation of `{item}` might be missing for `{ls}`"));
+                }
             }
             err.emit();
             return if op.is_comparison() { tcx.types.bool } else { tcx.types.error };
@@ -854,6 +890,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
             },
             UnOp::Not => match t.kind() {
                 TyKind::Bool | TyKind::Int(_) | TyKind::Uint(_) | TyKind::Infer(InferTy::IntVar(_)) => t,
+                _ if let Some(out) = self.check_overloaded_unop(e, op, t) => out,
                 _ => {
                     self.err(e.span, format!("cannot apply unary operator `!` to type `{}`", self.ty_str(t))).with_code(ErrCode(600)).emit();
                     tcx.types.error
@@ -868,8 +905,12 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                         .emit();
                     tcx.types.error
                 }
+                _ if let Some(out) = self.check_overloaded_unop(e, op, t) => out,
                 _ => {
-                    self.err(e.span, format!("cannot apply unary operator `-` to type `{}`", self.ty_str(t))).with_code(ErrCode(600)).emit();
+                    self.err(e.span, format!("cannot apply unary operator `-` to type `{}`", self.ty_str(t)))
+                        .with_code(ErrCode(600))
+                        .with_note(format!("an implementation of `Neg` might be missing for `{}`", self.ty_str(t)))
+                        .emit();
                     tcx.types.error
                 }
             },
@@ -1236,6 +1277,9 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                 }
                 None => break,
             }
+        }
+        if let Some(elem) = self.check_overloaded_index(e, base, bt, it) {
+            return elem;
         }
         self.err(e.span, format!("cannot index into a value of type `{}`", self.ty_str(bt))).with_code(ErrCode(608)).emit();
         tcx.types.error

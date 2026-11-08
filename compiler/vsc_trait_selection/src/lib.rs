@@ -77,6 +77,39 @@ pub fn fn_trait_kind(tcx: TyCtxt<'_>, def: DefId) -> Option<ClosureKind> {
     }
 }
 
+/// The operator traits, grouped by what the primitive types implement.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum OpTrait {
+    /// `Add`…`Rem` and their `*Assign` forms: numbers, with the same type
+    /// on both sides.
+    Arith,
+    /// `BitAnd`, `BitOr`, `BitXor` and their `*Assign` forms: integers and
+    /// `bool`.
+    Bit,
+    /// `Shl`, `Shr` and their `*Assign` forms: integers, any integer on the
+    /// right.
+    Shift,
+    Neg,
+    Not,
+    /// `PartialEq` and `PartialOrd`: the scalars.
+    Cmp,
+}
+
+/// Which operator trait `def` is, if it's one.
+pub fn op_trait(tcx: TyCtxt<'_>, def: DefId) -> Option<OpTrait> {
+    use vsc_hir::LangItem as L;
+    let item = tcx.lang_items().from_def_id(def)?;
+    Some(match item {
+        L::Add | L::Sub | L::Mul | L::Div | L::Rem | L::AddAssign | L::SubAssign | L::MulAssign | L::DivAssign | L::RemAssign => OpTrait::Arith,
+        L::BitAnd | L::BitOr | L::BitXor | L::BitAndAssign | L::BitOrAssign | L::BitXorAssign => OpTrait::Bit,
+        L::Shl | L::Shr | L::ShlAssign | L::ShrAssign => OpTrait::Shift,
+        L::Neg => OpTrait::Neg,
+        L::Not => OpTrait::Not,
+        L::PartialEq | L::PartialOrd => OpTrait::Cmp,
+        _ => return None,
+    })
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum ObligationKind<'tcx> {
     Trait(TraitRef<'tcx>),
@@ -243,6 +276,17 @@ impl<'a, 'tcx> SelectionCtxt<'a, 'tcx> {
             }
         }
 
+        if let Some(op) = op_trait(self.tcx(), tr.def_id) {
+            if let Some(sel) = self.builtin_op(op, tr, self_ty) {
+                return sel;
+            }
+        }
+        if self.tcx().is_lang_item(tr.def_id, vsc_hir::LangItem::Copy) {
+            if let Some(sel) = self.builtin_copy(tr, self_ty, span) {
+                return sel;
+            }
+        }
+
         let mut applicable = Vec::new();
         for imp in self.trait_impls(tr.def_id) {
             let may_apply = infcx.probe(|| {
@@ -269,6 +313,67 @@ impl<'a, 'tcx> SelectionCtxt<'a, 'tcx> {
             [] => Selection::NoSolution,
             _ => Selection::Ambiguous,
         }
+    }
+
+    /// The operator traits the compiler provides for the primitive types
+    /// (rustc's library implements them in `core`).
+    fn builtin_op(&self, op: OpTrait, tr: TraitRef<'tcx>, self_ty: Ty<'tcx>) -> Option<Selection<'tcx>> {
+        let infcx = self.infcx;
+        let is_int = |t: Ty<'tcx>| matches!(t.kind(), TyKind::Int(_) | TyKind::Uint(_) | TyKind::Infer(InferTy::IntVar(_)));
+        let is_float = |t: Ty<'tcx>| matches!(t.kind(), TyKind::Float(_) | TyKind::Infer(InferTy::FloatVar(_)));
+        let applies = match op {
+            OpTrait::Arith => is_int(self_ty) || is_float(self_ty),
+            OpTrait::Bit => is_int(self_ty) || matches!(self_ty.kind(), TyKind::Bool),
+            OpTrait::Shift => is_int(self_ty),
+            OpTrait::Neg => matches!(self_ty.kind(), TyKind::Int(_) | TyKind::Infer(InferTy::IntVar(_))) || is_float(self_ty),
+            OpTrait::Not => is_int(self_ty) || matches!(self_ty.kind(), TyKind::Bool),
+            OpTrait::Cmp => is_int(self_ty) || is_float(self_ty) || matches!(self_ty.kind(), TyKind::Bool | TyKind::Char),
+        };
+        if !applies {
+            return None;
+        }
+        // The right-hand side, if the trait has one.
+        if let Some(rhs) = tr.args.get(1).map(|a| a.expect_ty()) {
+            if op == OpTrait::Shift {
+                let rhs = infcx.shallow_resolve(rhs);
+                if matches!(rhs.kind(), TyKind::Infer(InferTy::TyVar(_))) {
+                    return Some(Selection::Ambiguous);
+                }
+                if !is_int(rhs) {
+                    return Some(Selection::NoSolution);
+                }
+            } else if infcx.commit_if_ok(|| infcx.unify(rhs, self_ty)).is_err() {
+                return Some(Selection::NoSolution);
+            }
+        }
+        Some(Selection::Selected(Candidate::Builtin, Vec::new()))
+    }
+
+    /// `Copy` for the types Rust makes it built in for: scalars, shared
+    /// references, raw pointers, function items and pointers, `never`, and
+    /// tuples and arrays of `Copy` values (as nested goals). `None` leaves
+    /// it to the impls (structs and enums opt in).
+    fn builtin_copy(&self, tr: TraitRef<'tcx>, self_ty: Ty<'tcx>, span: Span) -> Option<Selection<'tcx>> {
+        let tcx = self.tcx();
+        let goal = |t: Ty<'tcx>| Obligation { kind: ObligationKind::Trait(TraitRef { def_id: tr.def_id, args: tcx.mk_args(&[GenericArg::Type(t)]) }), span };
+        let nested = match *self_ty.kind() {
+            TyKind::Bool
+            | TyKind::Char
+            | TyKind::Int(_)
+            | TyKind::Uint(_)
+            | TyKind::Float(_)
+            | TyKind::Never
+            | TyKind::RawPtr(..)
+            | TyKind::FnDef(..)
+            | TyKind::FnPtr(_)
+            | TyKind::Infer(InferTy::IntVar(_) | InferTy::FloatVar(_)) => Vec::new(),
+            TyKind::Ref(_, _, Mutability::Not) => Vec::new(),
+            TyKind::Ref(_, _, Mutability::Mut) => return Some(Selection::NoSolution),
+            TyKind::Tuple(tys) => tys.iter().map(|&t| goal(t)).collect(),
+            TyKind::Array(elem, _) => vec![goal(elem)],
+            _ => return None,
+        };
+        Some(Selection::Selected(Candidate::Builtin, nested))
     }
 
     /// The signature of a value the function traits are built in for, and
@@ -344,8 +449,13 @@ impl<'a, 'tcx> SelectionCtxt<'a, 'tcx> {
                 Some((tcx.mk_ty(TyKind::Alias(resolved)), Vec::new()))
             }
             Selection::Selected(Candidate::Builtin, nested) => {
-                // `<F as FnOnce<A>>.Output` is the signature's output.
-                let output = self.callable_sig(tr.self_ty()).map(|(sig, _)| sig.output()).unwrap_or(tcx.types.error);
+                // `<int32 as Add<int32>>.Output` is `int32`; `<F as
+                // FnOnce<A>>.Output` is the signature's output.
+                let output = if op_trait(tcx, trait_def).is_some() {
+                    infcx.shallow_resolve(tr.self_ty())
+                } else {
+                    self.callable_sig(tr.self_ty()).map(|(sig, _)| sig.output()).unwrap_or(tcx.types.error)
+                };
                 Some((output, nested))
             }
             Selection::Ambiguous => None,

@@ -57,6 +57,39 @@ lang_items! {
     FnMut: "fnMut", "trait";
     Fn: "fn", "trait";
 
+    // Operators on values that aren't primitives (rustc's `ops` and `cmp`
+    // lang items).
+    Add: "add", "trait";
+    Sub: "sub", "trait";
+    Mul: "mul", "trait";
+    Div: "div", "trait";
+    Rem: "rem", "trait";
+    Neg: "neg", "trait";
+    Not: "not", "trait";
+    BitAnd: "bitAnd", "trait";
+    BitOr: "bitOr", "trait";
+    BitXor: "bitXor", "trait";
+    Shl: "shl", "trait";
+    Shr: "shr", "trait";
+    AddAssign: "addAssign", "trait";
+    SubAssign: "subAssign", "trait";
+    MulAssign: "mulAssign", "trait";
+    DivAssign: "divAssign", "trait";
+    RemAssign: "remAssign", "trait";
+    BitAndAssign: "bitAndAssign", "trait";
+    BitOrAssign: "bitOrAssign", "trait";
+    BitXorAssign: "bitXorAssign", "trait";
+    ShlAssign: "shlAssign", "trait";
+    ShrAssign: "shrAssign", "trait";
+    PartialEq: "eq", "trait";
+    PartialOrd: "partialOrd", "trait";
+    Ordering: "Ordering", "enum";
+    Index: "index", "trait";
+    IndexMut: "indexMut", "trait";
+
+    // Values that are copied rather than moved.
+    Copy: "copy", "trait";
+
     // Exception 2, 3 and 14 types.
     String: "String", "struct";
     CString: "CString", "struct";
