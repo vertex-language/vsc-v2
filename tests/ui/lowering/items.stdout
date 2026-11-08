@@ -21,7 +21,7 @@ impl<'src> Highlight<'src> {
     }
 }
 
-fn longest(a: &string, b: &string) -> &'[a, b] string {
+fn longest<'l>(a: &'l string, b: &'l string) -> &'l string {
     if drop_temps!(a.Len() >= b.Len()) {
         a
     } else {

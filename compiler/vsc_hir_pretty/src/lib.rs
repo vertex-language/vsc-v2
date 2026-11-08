@@ -1,10 +1,10 @@
 //! Printing HIR (rustc's `rustc_hir_pretty`), for `-Z unpretty=hir`.
 //!
 //! HIR has no Vertex spellings left, so it prints in Rust's syntax, as
-//! rustc's printer does: `fn`, `::`, `'a` for origins, `#[lang = "…"]` for
+//! rustc's printer does: `fn`, `::`, `'a` for lifetimes, `#[lang = "…"]` for
 //! lang item paths. Desugarings show as what they became. The few things
-//! Rust has no syntax for keep Vertex's: `class`, `func(T) -> U` function
-//! value types, and `'[a, b]` for an origin naming several parameters.
+//! Rust has no syntax for keep Vertex's: `class` and `func(T) -> U`
+//! function value types.
 
 use std::fmt::Write;
 
@@ -447,10 +447,10 @@ impl<'a> Printer<'a> {
         match (kind, &ty.kind) {
             (ImplicitSelfKind::Imm, _) => self.w("self"),
             (ImplicitSelfKind::Mut, _) => self.w("mut self"),
-            (ImplicitSelfKind::RefImm | ImplicitSelfKind::RefMut, TyKind::Ref(origin, _)) => {
+            (ImplicitSelfKind::RefImm | ImplicitSelfKind::RefMut, TyKind::Ref(lifetime, _)) => {
                 self.w("&");
-                if let OriginKind::Named(_) = origin.kind {
-                    self.origin(origin);
+                if let LifetimeKind::Named(..) = lifetime.kind {
+                    self.lifetime(lifetime);
                     self.w(" ");
                 }
                 self.w(if kind == ImplicitSelfKind::RefMut { "mut self" } else { "self" });
@@ -491,7 +491,7 @@ impl<'a> Printer<'a> {
 
     fn generic_param(&mut self, gp: &GenericParam) {
         match &gp.kind {
-            GenericParamKind::Origin => {
+            GenericParamKind::Lifetime => {
                 let _ = write!(self.out, "'{}", gp.name);
             }
             GenericParamKind::Type { default } => {
@@ -528,14 +528,14 @@ impl<'a> Printer<'a> {
                 p.w(": ");
                 p.bounds(bounds);
             }
-            WherePredicate::Origin { origin, bounds, .. } => {
-                p.origin(origin);
+            WherePredicate::Lifetime { lifetime, bounds, .. } => {
+                p.lifetime(lifetime);
                 p.w(": ");
                 for (i, b) in bounds.iter().enumerate() {
                     if i > 0 {
                         p.w(" + ");
                     }
-                    p.origin(b);
+                    p.lifetime(b);
                 }
             }
         });
@@ -548,7 +548,7 @@ impl<'a> Printer<'a> {
             }
             match b {
                 GenericBound::Trait(t) => self.poly_trait_ref(t),
-                GenericBound::Outlives(o) => self.origin(o),
+                GenericBound::Outlives(o) => self.lifetime(o),
                 GenericBound::Use(args, _) => {
                     self.w("use<");
                     self.comma_sep(args, |p, a| p.w(a.name.as_str()));
@@ -570,16 +570,11 @@ impl<'a> Printer<'a> {
         self.path(&t.trait_ref.path);
     }
 
-    fn origin(&mut self, o: &Origin) {
+    fn lifetime(&mut self, o: &Lifetime) {
         match &o.kind {
-            OriginKind::Elided => self.w("'_"),
-            OriginKind::Named(names) if names.len() == 1 => {
-                let _ = write!(self.out, "'{}", names[0].0);
-            }
-            OriginKind::Named(names) => {
-                self.w("'[");
-                self.comma_sep(names, |p, (n, _)| p.w(n.name.as_str()));
-                self.w("]");
+            LifetimeKind::Elided => self.w("'_"),
+            LifetimeKind::Named(name, _) => {
+                let _ = write!(self.out, "'{name}");
             }
         }
     }
@@ -606,10 +601,10 @@ impl<'a> Printer<'a> {
                 self.w(if mt.mutbl.is_mut() { "*mut " } else { "*const " });
                 self.ty(&mt.ty);
             }
-            TyKind::Ref(origin, mt) => {
+            TyKind::Ref(lifetime, mt) => {
                 self.w("&");
-                if let OriginKind::Named(_) = origin.kind {
-                    self.origin(origin);
+                if let LifetimeKind::Named(..) = lifetime.kind {
+                    self.lifetime(lifetime);
                     self.w(" ");
                 }
                 if mt.mutbl.is_mut() {
@@ -659,7 +654,7 @@ impl<'a> Printer<'a> {
                 self.w(")");
             }
             TyKind::Path(q) => self.qpath(q, false),
-            TyKind::TraitObject(traits, origin) => {
+            TyKind::TraitObject(traits, lifetime) => {
                 self.w("dyn ");
                 for (i, t) in traits.iter().enumerate() {
                     if i > 0 {
@@ -667,9 +662,9 @@ impl<'a> Printer<'a> {
                     }
                     self.poly_trait_ref(t);
                 }
-                if let Some(o) = origin {
+                if let Some(o) = lifetime {
                     self.w(" + ");
-                    self.origin(o);
+                    self.lifetime(o);
                 }
             }
             TyKind::OpaqueDef(bounds) => {
@@ -737,7 +732,7 @@ impl<'a> Printer<'a> {
             }
             first = false;
             match arg {
-                GenericArg::Origin(o) => self.origin(o),
+                GenericArg::Lifetime(o) => self.lifetime(o),
                 GenericArg::Type(t) => self.ty(t),
                 GenericArg::Const(c) => match &c.kind {
                     ConstArgKind::Path(q) => self.qpath(q, false),

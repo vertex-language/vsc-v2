@@ -1,5 +1,5 @@
 //! Printing types in Vertex's spelling, for diagnostics (rustc's
-//! `ty/print`): `int64`, `string` and `&string`, `never`, `&[a] T`,
+//! `ty/print`): `int64`, `string` and `&string`, `never`, `&a T`,
 //! `func(T) -> U`, `shapes.Circle`.
 
 use vsc_hir::LangItem;
@@ -10,7 +10,7 @@ use super::*;
 
 /// The names of the bound variables of the binders being printed,
 /// innermost last.
-type Binders<'tcx> = Vec<&'tcx [BoundVar<'tcx>]>;
+type Binders<'tcx> = Vec<&'tcx [BoundVar]>;
 
 impl<'tcx> TyCtxt<'tcx> {
     pub fn ty_to_string(self, ty: Ty<'tcx>) -> String {
@@ -23,7 +23,7 @@ impl<'tcx> TyCtxt<'tcx> {
         self.region_str(r, &[])
     }
 
-    fn region_str(self, r: Region<'tcx>, binders: &[&'tcx [BoundVar<'tcx>]]) -> String {
+    fn region_str(self, r: Region<'tcx>, binders: &[&'tcx [BoundVar]]) -> String {
         match *r.kind() {
             RegionKind::ReEarlyParam(p) => p.name.to_string(),
             RegionKind::ReBound(d, b) => {
@@ -121,7 +121,6 @@ impl<'tcx> TyCtxt<'tcx> {
             s.push_str(" -> ");
             self.write_ty(s, out, b);
         }
-        // `[a, b]`: a region the named ones outlive.
         b.pop();
     }
 

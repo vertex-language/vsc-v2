@@ -95,7 +95,7 @@ pub trait Visitor<'ast>: Sized {
     fn visit_trait_ref(&mut self, t: &'ast TraitRef) {
         walk_trait_ref(self, t)
     }
-    fn visit_origin_ref(&mut self, _o: &'ast OriginRef) {}
+    fn visit_lifetime_ref(&mut self, _o: &'ast Lifetime) {}
     fn visit_variant_data(&mut self, data: &'ast VariantData) {
         walk_variant_data(self, data)
     }
@@ -364,7 +364,7 @@ pub fn walk_generic_param<'a, V: Visitor<'a>>(v: &mut V, p: &'a GenericParam) {
         v.visit_param_bound(b);
     }
     match &p.kind {
-        GenericParamKind::Origin => {}
+        GenericParamKind::Lifetime => {}
         GenericParamKind::Type { default } => {
             if let Some(d) = default {
                 v.visit_ty(d);
@@ -396,7 +396,7 @@ pub fn walk_where_predicate<'a, V: Visitor<'a>>(v: &mut V, p: &'a WherePredicate
 pub fn walk_param_bound<'a, V: Visitor<'a>>(v: &mut V, b: &'a GenericBound) {
     match b {
         GenericBound::Trait(t) => v.visit_poly_trait_ref(t),
-        GenericBound::Outlives(o) => v.visit_origin_ref(o),
+        GenericBound::Outlives(o) => v.visit_lifetime_ref(o),
         GenericBound::Use(..) => {}
     }
 }
@@ -445,9 +445,9 @@ pub fn walk_ty<'a, V: Visitor<'a>>(v: &mut V, ty: &'a Ty) {
             v.visit_anon_const(len);
         }
         TyKind::Ptr(mt) => v.visit_ty(&mt.ty),
-        TyKind::Ref(origin, mt) => {
-            if let Some(o) = origin {
-                v.visit_origin_ref(o);
+        TyKind::Ref(lifetime, mt) => {
+            if let Some(o) = lifetime {
+                v.visit_lifetime_ref(o);
             }
             v.visit_ty(&mt.ty);
         }
@@ -515,7 +515,7 @@ pub fn walk_generic_args<'a, V: Visitor<'a>>(v: &mut V, args: &'a GenericArgs) {
 
 pub fn walk_generic_arg<'a, V: Visitor<'a>>(v: &mut V, arg: &'a GenericArg) {
     match arg {
-        GenericArg::Origin(o) => v.visit_origin_ref(o),
+        GenericArg::Lifetime(o) => v.visit_lifetime_ref(o),
         GenericArg::Type(t) => v.visit_ty(t),
         GenericArg::Const(c) => v.visit_anon_const(c),
     }

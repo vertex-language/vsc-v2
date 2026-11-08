@@ -1,0 +1,28 @@
+error[E0106]: missing lifetime specifier
+ --> $DIR/lifetime-errors.vs:6:11
+  |
+6 |     text: &int64 //~ ERROR missing lifetime specifier
+  |           ^ expected named lifetime parameter
+  |
+  = help: consider introducing a named lifetime parameter: `<a>`, then `&a T`
+
+error[E0106]: missing lifetime specifier
+ --> $DIR/lifetime-errors.vs:9:35
+  |
+9 | func two(a: &int64, b: &int64) -> &int64 { a } //~ ERROR missing lifetime specifier
+  |                                   ^ expected named lifetime parameter
+  |
+  = help: this function's return type contains a borrowed value, but the signature does not say which one of the parameters it is borrowed from
+  = help: consider introducing a named lifetime parameter: `func f<a>(x: &a T, y: &a T) -> &a T`
+
+error[E0106]: missing lifetime specifier
+  --> $DIR/lifetime-errors.vs:11:16
+   |
+11 | func none() -> &int64 { loop {} } //~ ERROR missing lifetime specifier
+   |                ^ expected named lifetime parameter
+   |
+   = help: this function's return type contains a borrowed value, but there is no value for it to be borrowed from
+   = help: consider using the `static` lifetime (`&static T`), or returning an owned value
+
+error: aborting due to 3 previous errors
+

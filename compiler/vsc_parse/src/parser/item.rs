@@ -89,7 +89,7 @@ impl<'a> Parser<'a> {
         if name.is_non_keyword_ident() {
             return true;
         }
-        // A flat receiver: `func (t: &Task) Name`.
+        // A flat receiver: `func (t: &Task) name`.
         if name.kind == TokenKind::OpenParen {
             let open = self.pos + i + 1;
             if let Some(close) = self.buf.partner(open) {
@@ -328,26 +328,35 @@ impl<'a> Parser<'a> {
         let decl = self.parse_fn_decl(receiver.is_none())?;
         generics.where_clause = self.parse_where_clause()?;
         let sig_span = lo.to(self.prev_token.span);
-        let body = if self.check(TokenKind::OpenBrace) { Some(self.parse_block()?) } else { None };
+        // A function's body starts with no labels in scope.
+        let outer_labels = std::mem::take(&mut self.labels);
+        let body = if self.check(TokenKind::OpenBrace) { self.parse_block().map(Some) } else { Ok(None) };
+        self.labels = outer_labels;
+        let body = body?;
         let f = Fn { ident, generics, sig: FnSig { header, decl, span: sig_span }, body };
         Ok((f, receiver.filter(|_| allow_receiver)))
     }
 
-    /// `(name: Type)` before a flat method's name (exception 8).
+    /// `(name: Type)` or `(var name: Type)` before a flat method's name
+    /// (exception 8). `var` makes the receiver a mutable binding, as on any
+    /// parameter.
     fn parse_receiver(&mut self) -> PResult<'a, Param> {
         let lo = self.token.span;
         self.bump(); // `(`
         let param = self.with_nl(false, |this| -> PResult<'a, Param> {
             let attrs = this.parse_outer_attributes()?;
+            let pat_lo = this.token.span;
+            let mutbl = if this.eat_keyword(kw::Var) { Mutability::Mut } else { Mutability::Not };
             let ident = this.parse_ident()?;
             if !this.eat(TokenKind::Colon) {
                 let mut err = this.expected_found("`:`");
-                err.note("a receiver is written `(name: Type)`, as in `func (t: &Task) IsOpen()`");
+                err.note("a receiver is written `(name: Type)`, as in `func (t: &Task) isOpen()`");
                 return Err(err);
             }
             let ty = this.parse_ty()?;
             this.expect(TokenKind::CloseParen)?;
-            let pat = P::new(Pat { id: DUMMY_NODE_ID, kind: PatKind::Ident(BindingMode::NONE, ident, None), span: ident.span });
+            let mode = BindingMode(vsc_ast::ByRef::No, mutbl);
+            let pat = P::new(Pat { id: DUMMY_NODE_ID, kind: PatKind::Ident(mode, ident, None), span: pat_lo.to(ident.span) });
             Ok(Param { attrs, ty, pat, id: DUMMY_NODE_ID, span: lo.to(this.prev_token.span), flat_receiver: true })
         })?;
         Ok(param)
@@ -355,7 +364,7 @@ impl<'a> Parser<'a> {
 
     /// Wraps a flat method in a one-method inherent impl. The impl's own
     /// parameters are the bare names among the receiver type's arguments
-    /// (Go's rule), which name resolution sorts into types and origins.
+    /// (Go's rule), which name resolution sorts into types and lifetimes.
     fn flat_receiver_impl(&mut self, mut f: Fn, receiver: Param, attrs: AttrVec, vis: Visibility, lo: Span) -> PResult<'a, Impl> {
         let self_ty = match &receiver.ty.kind {
             TyKind::Ref(_, MutTy { ty, .. }) => ty.clone(),
@@ -379,7 +388,7 @@ impl<'a> Parser<'a> {
                                 },
                                 _ => {}
                             },
-                            AngleBracketedArg::Arg(GenericArg::Origin(o)) => introduced_params.extend(o.origins.iter().copied()),
+                            AngleBracketedArg::Arg(GenericArg::Lifetime(o)) => introduced_params.push(o.ident),
                             _ => {}
                         }
                     }
@@ -501,33 +510,25 @@ impl<'a> Parser<'a> {
             return Ok(Some(mk_param(self, mode, self_span, TyKind::ImplicitSelf)));
         }
 
-        // `&self` and friends (`&a self`, `&a mut self`, `&static self`, `&_ self`, `&[a] self`).
+        // `&self` and friends (`&a self`, `&a mut self`, `&static self`, `&_ self`).
         if self.check(TokenKind::And) {
             let n1 = self.look_ahead(1);
-            let (has_bracket_origin, has_ident_origin, after_origin) = if n1.kind == TokenKind::OpenBracket {
-                let open = self.pos + 1;
-                match self.buf.partner(open) {
-                    Some(close) => (true, false, close + 1 - self.pos),
-                    None => (false, false, 1),
-                }
-            } else if n1.lifetime().is_some()
+            let (has_ident_lifetime, after_lifetime) = if n1.lifetime().is_some()
                 || n1.is_keyword(kw::Static)
                 || n1.is_keyword(kw::Underscore)
                 || (n1.is_non_keyword_ident() && !n1.is_keyword(kw::Mut) && !is_self(n1))
             {
-                (false, true, 2)
+                (true, 2)
             } else {
-                (false, false, 1)
+                (false, 1)
             };
-            let t = self.look_ahead(after_origin);
-            let is_ref_self = is_self(t) || (t.is_keyword(kw::Mut) && is_self(self.look_ahead(after_origin + 1)));
+            let t = self.look_ahead(after_lifetime);
+            let is_ref_self = is_self(t) || (t.is_keyword(kw::Mut) && is_self(self.look_ahead(after_lifetime + 1)));
             if !is_ref_self {
                 return Ok(None);
             }
             self.bump(); // `&`
-            let origin = if has_bracket_origin {
-                Some(self.parse_origin_ref()?)
-            } else if let Some(label) = self.token.lifetime() {
+            let lifetime = if let Some(label) = self.token.lifetime() {
                 self.bump();
                 let name = label.name.as_str().trim_start_matches('\'');
                 self.dcx()
@@ -542,20 +543,17 @@ impl<'a> Parser<'a> {
                 if name == "_" {
                     None
                 } else {
-                    Some(vsc_ast::OriginRef {
-                        origins: vec![Ident::new(vsc_span::Symbol::intern(name), label.span)],
-                        span: label.span,
-                    })
+                    Some(vsc_ast::Lifetime { ident: Ident::new(vsc_span::Symbol::intern(name), label.span) })
                 }
-            } else if has_ident_origin {
+            } else if has_ident_lifetime {
                 if self.eat_keyword(kw::Underscore) {
                     None
                 } else if self.eat_keyword(kw::Static) {
                     let span = self.prev_token.span;
-                    Some(vsc_ast::OriginRef { origins: vec![Ident::new(kw::Static, span)], span })
+                    Some(vsc_ast::Lifetime { ident: Ident::new(kw::Static, span) })
                 } else {
                     let ident = self.parse_ident()?;
-                    Some(vsc_ast::OriginRef { origins: vec![ident], span: ident.span })
+                    Some(vsc_ast::Lifetime { ident })
                 }
             } else {
                 None
@@ -564,7 +562,7 @@ impl<'a> Parser<'a> {
             let self_span = self.token.span;
             self.bump(); // `self`
             let implicit = P::new(Ty { id: DUMMY_NODE_ID, kind: TyKind::ImplicitSelf, span: self_span });
-            return Ok(Some(mk_param(self, BindingMode::NONE, self_span, TyKind::Ref(origin, MutTy { ty: implicit, mutbl }))));
+            return Ok(Some(mk_param(self, BindingMode::NONE, self_span, TyKind::Ref(lifetime, MutTy { ty: implicit, mutbl }))));
         }
         Ok(None)
     }

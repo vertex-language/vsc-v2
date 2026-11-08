@@ -70,7 +70,7 @@ pub fn dump_signatures(tcx: TyCtxt<'_>) -> String {
     out
 }
 
-/// `<T, [a], const N: uint>`: the item's own parameters.
+/// `<T, a, const N: uint>`: the item's own parameters.
 fn generics(tcx: TyCtxt<'_>, def: DefId) -> String {
     let g = tcx.generics_of(def);
     let parts: Vec<String> = g
@@ -78,7 +78,7 @@ fn generics(tcx: TyCtxt<'_>, def: DefId) -> String {
         .iter()
         .filter(|p| !matches!(p.kind, GenericParamDefKind::Type { synthetic: true, .. } if p.name == vsc_span::kw::SelfUpper))
         .map(|p| match p.kind {
-            GenericParamDefKind::Origin => p.name.to_string(),
+            GenericParamDefKind::Lifetime => p.name.to_string(),
             GenericParamDefKind::Type { .. } => p.name.to_string(),
             GenericParamDefKind::Const { .. } => format!("const {}: {}", p.name, tcx.ty_to_string(tcx.type_of(p.def_id))),
         })

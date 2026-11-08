@@ -1,11 +1,11 @@
-//! `-Z dump-resolutions`: every path and origin with what it resolved to, in
+//! `-Z dump-resolutions`: every path and lifetime with what it resolved to, in
 //! source order. Tests compare against this.
 
 use std::fmt::Write;
 
 use vsc_ast::visit::{self, Visitor};
 use vsc_ast::*;
-use vsc_hir::def::{OriginRes, PartialRes, Res};
+use vsc_hir::def::{LifetimeRes, PartialRes, Res};
 use vsc_span::def_id::{DefId, LocalDefId};
 use vsc_span::{Ident, SourceMap, Span};
 
@@ -80,15 +80,14 @@ impl Dumper<'_> {
         self.lines.push((path.span, line));
     }
 
-    fn origin(&mut self, ident: Ident) {
-        let Some(res) = self.out.origin_res_map.get(&ident.span) else { return };
+    fn lifetime(&mut self, ident: Ident) {
+        let Some(res) = self.out.lifetime_res_map.get(&ident.span) else { return };
         let target = match *res {
-            OriginRes::Param(def) => format!("origin parameter `{}`", self.def_path(def)),
-            OriginRes::FnParam(id) => format!("parameter #{}", id.as_u32()),
-            OriginRes::Static => "static".to_string(),
-            OriginRes::Err => "error".to_string(),
+            LifetimeRes::Param(def) => format!("lifetime parameter `{}`", self.def_path(def)),
+            LifetimeRes::Static => "static".to_string(),
+            LifetimeRes::Err => "error".to_string(),
         };
-        self.lines.push((ident.span, format!("{} origin `{ident}` -> {target}", self.loc(ident.span))));
+        self.lines.push((ident.span, format!("{} lifetime `{ident}` -> {target}", self.loc(ident.span))));
     }
 }
 
@@ -133,10 +132,8 @@ impl<'ast> Visitor<'ast> for Dumper<'_> {
         visit::walk_trait_ref(self, t);
     }
 
-    fn visit_origin_ref(&mut self, o: &'ast OriginRef) {
-        for &ident in &o.origins {
-            self.origin(ident);
-        }
+    fn visit_lifetime_ref(&mut self, o: &'ast Lifetime) {
+        self.lifetime(o.ident);
     }
 
     fn visit_generic_arg(&mut self, arg: &'ast GenericArg) {
@@ -150,8 +147,8 @@ impl<'ast> Visitor<'ast> for Dumper<'_> {
                 _ => None,
             };
             if let Some(ident) = ident {
-                if self.out.origin_res_map.contains_key(&ident.span) {
-                    self.origin(ident);
+                if self.out.lifetime_res_map.contains_key(&ident.span) {
+                    self.lifetime(ident);
                     return;
                 }
             }

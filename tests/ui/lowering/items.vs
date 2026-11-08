@@ -16,7 +16,7 @@ struct Highlight<src> { text: &src string }
 
 func (h: &Highlight<src>) Text() -> &src string { h.text }
 
-func longest(a: &string, b: &string) -> &[a, b] string {
+func longest<l>(a: &l string, b: &l string) -> &l string {
     if a.Len() >= b.Len() { a } else { b }
 }
 

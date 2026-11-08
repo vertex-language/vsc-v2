@@ -94,7 +94,7 @@ impl LoweringContext<'_> {
             }
             K::Closure(c) => {
                 let kind = if c.asyncness.is_some() { hir::ClosureKind::AsyncClosure } else { hir::ClosureKind::Closure };
-                let fn_decl = self.lower_fn_decl(&c.fn_decl, true);
+                let fn_decl = self.lower_fn_decl(&c.fn_decl);
                 let body = self.lower_fn_body(&c.fn_decl, Some(&c.body), e.span);
                 hir::ExprKind::Closure(Box::new(hir::Closure {
                     def_id: self.local_def_id(e.id),
@@ -112,7 +112,6 @@ impl LoweringContext<'_> {
                 });
                 let fn_decl = hir::FnDecl {
                     inputs: Vec::new(),
-                    param_bindings: Vec::new(),
                     output: hir::FnRetTy::DefaultReturn(b.span.shrink_to_lo()),
                     c_variadic: false,
                     implicit_self: hir::ImplicitSelfKind::None,

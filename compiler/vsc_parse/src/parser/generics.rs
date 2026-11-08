@@ -3,16 +3,16 @@
 use vsc_ast::token::TokenKind;
 use vsc_ast::{
     AnonConst, DUMMY_NODE_ID, Expr, ExprKind, GenericBound, GenericBounds, GenericParam, GenericParamKind, Generics,
-    OriginRef, P, PolyTraitRef, TraitBoundModifiers, TraitRef, WhereClause, WherePredicate, WherePredicateKind,
+    Lifetime, P, PolyTraitRef, TraitBoundModifiers, TraitRef, WhereClause, WherePredicate, WherePredicateKind,
 };
 use vsc_errors::Applicability;
-use vsc_span::{Ident, Span, Symbol, kw, sym};
+use vsc_span::{Ident, Span, Symbol, kw};
 
 use super::path::PathStyle;
 use super::{PResult, Parser};
 
 impl<'a> Parser<'a> {
-    /// `<A, B: Bound, const N: uint, src: Origin>`, or nothing.
+    /// `<A, B: Bound, const N: uint, src: Lifetime>`, or nothing.
     pub fn parse_generics(&mut self) -> PResult<'a, Generics> {
         if !(self.check(TokenKind::Lt) || self.check(TokenKind::Shl)) || self.token.line_break_before {
             let span = self.prev_token.span.shrink_to_hi();
@@ -73,7 +73,7 @@ impl<'a> Parser<'a> {
                 ident: Ident::new(Symbol::intern(&name), label.span),
                 attrs,
                 bounds,
-                kind: GenericParamKind::Origin,
+                kind: GenericParamKind::Lifetime,
                 span: lo.to(self.prev_token.span),
             });
         }
@@ -113,19 +113,12 @@ impl<'a> Parser<'a> {
         let is_lifetime = ident.name.as_str().starts_with(|c: char| c.is_ascii_lowercase());
         let mut bounds = Vec::new();
         let mut kind = if is_lifetime {
-            GenericParamKind::Origin
+            GenericParamKind::Lifetime
         } else {
             GenericParamKind::Type { default: None }
         };
         if self.eat(TokenKind::Colon) {
-            if self.token.is_keyword(sym::Origin) {
-                // Legacy `src: Origin + [b]` syntax.
-                self.bump();
-                kind = GenericParamKind::Origin;
-                while self.eat(TokenKind::Plus) {
-                    bounds.push(self.parse_lifetime_bound()?);
-                }
-            } else if matches!(kind, GenericParamKind::Origin) {
+            if matches!(kind, GenericParamKind::Lifetime) {
                 loop {
                     if !self.can_begin_bound() {
                         break;
@@ -147,9 +140,6 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_lifetime_bound(&mut self) -> PResult<'a, GenericBound> {
-        if self.check(TokenKind::OpenBracket) {
-            return Ok(GenericBound::Outlives(self.parse_origin_ref()?));
-        }
         if let Some(label) = self.token.lifetime() {
             self.bump();
             let name = label.name.as_str().trim_start_matches('\'');
@@ -162,17 +152,14 @@ impl<'a> Parser<'a> {
                     Applicability::MachineApplicable,
                 )
                 .emit();
-            return Ok(GenericBound::Outlives(OriginRef {
-                origins: vec![Ident::new(Symbol::intern(name), label.span)],
-                span: label.span,
-            }));
+            return Ok(GenericBound::Outlives(Lifetime { ident: Ident::new(Symbol::intern(name), label.span) }));
         }
         if self.eat_keyword(kw::Static) {
             let span = self.prev_token.span;
-            return Ok(GenericBound::Outlives(OriginRef { origins: vec![Ident::new(kw::Static, span)], span }));
+            return Ok(GenericBound::Outlives(Lifetime { ident: Ident::new(kw::Static, span) }));
         }
         let ident = self.parse_ident()?;
-        Ok(GenericBound::Outlives(OriginRef { origins: vec![ident], span: ident.span }))
+        Ok(GenericBound::Outlives(Lifetime { ident: ident }))
     }
 
     fn can_begin_bound(&self) -> bool {
@@ -205,9 +192,6 @@ impl<'a> Parser<'a> {
 
     pub fn parse_generic_bound(&mut self) -> PResult<'a, GenericBound> {
         let lo = self.token.span;
-        if self.check(TokenKind::OpenBracket) {
-            return Ok(GenericBound::Outlives(self.parse_origin_ref()?));
-        }
         if let Some(label) = self.token.lifetime() {
             self.bump();
             let name = label.name.as_str().trim_start_matches('\'');
@@ -220,14 +204,11 @@ impl<'a> Parser<'a> {
                     Applicability::MachineApplicable,
                 )
                 .emit();
-            return Ok(GenericBound::Outlives(OriginRef {
-                origins: vec![Ident::new(Symbol::intern(name), label.span)],
-                span: label.span,
-            }));
+            return Ok(GenericBound::Outlives(Lifetime { ident: Ident::new(Symbol::intern(name), label.span) }));
         }
         if self.eat_keyword(kw::Static) {
             let span = self.prev_token.span;
-            return Ok(GenericBound::Outlives(OriginRef { origins: vec![Ident::new(kw::Static, span)], span }));
+            return Ok(GenericBound::Outlives(Lifetime { ident: Ident::new(kw::Static, span) }));
         }
         if matches!(
             self.token.ident(),
@@ -240,7 +221,7 @@ impl<'a> Parser<'a> {
             TokenKind::Dot | TokenKind::Colon | TokenKind::Lt | TokenKind::Shl | TokenKind::OpenParen
         ) {
             let ident = self.parse_ident()?;
-            return Ok(GenericBound::Outlives(OriginRef { origins: vec![ident], span: ident.span }));
+            return Ok(GenericBound::Outlives(Lifetime { ident: ident }));
         }
         if self.eat_keyword(kw::Use) {
             // `use<T, src, Self>`: the parameters an `impl Trait` captures.
@@ -270,7 +251,7 @@ impl<'a> Parser<'a> {
         }
         let parens = self.eat(TokenKind::OpenParen);
         let maybe = self.eat(TokenKind::Question);
-        let params = if self.check_keyword(kw::For) { self.parse_for_origins()? } else { Vec::new() };
+        let params = if self.check_keyword(kw::For) { self.parse_for_lifetimes()? } else { Vec::new() };
         let path = self.parse_path(PathStyle::Type)?;
         if parens {
             self.expect(TokenKind::CloseParen)?;
@@ -311,7 +292,7 @@ impl<'a> Parser<'a> {
                 }
                 let plo = this.token.span;
                 let bound_generic_params =
-                    if this.check_keyword(kw::For) { this.parse_for_origins()? } else { Vec::new() };
+                    if this.check_keyword(kw::For) { this.parse_for_lifetimes()? } else { Vec::new() };
                 let bounded_ty = this.parse_ty_no_plus()?;
                 this.expect(TokenKind::Colon)?;
                 let bounds = this.parse_generic_bounds()?;

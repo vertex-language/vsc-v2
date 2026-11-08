@@ -280,20 +280,32 @@ where
 As in Rust, a function's last expression is its return value. Parameters are positional:
 `add(1, 2)`.
 
-Rust lets you write explicit generic arguments in an expression (`"5".parse::<i64>()`).
-Vertex has no `::`, so the type comes from an annotation:
+Explicit generic arguments in an expression are written without Rust's `::`, on functions,
+methods, types and variants alike. An annotation works too, as in Rust.
 
 ```rust
 // Rust
 let n = "5".parse::<i64>().unwrap();
 let words = line.split(' ').collect::<Vec<_>>();
+let size = std::mem::size_of::<u64>();
+let empty = Vec::<i32>::new();
+let none = None::<i32>;
 ```
 
 ```rust
 // Vertex
-let n: int64 = "5".parse().unwrap()
-let words: Vec<&string> = line.split(' ').collect()
+let n = "5".parse<int64>().unwrap()
+let words = line.split(' ').collect<Vec<_>>()
+let size = mem.sizeOf<uint64>()
+let empty = Vec<int32>.new()
+let none = Option<int32>.None
 ```
+
+`<` after a name starts generic arguments only where it can't be a comparison: what's
+inside reads as types (`PascalCase` names, built-in types like `int32`, `&T`, `[T]`), and
+the `>` is followed by `(`, `.`, `{` or the end of the expression. `a < b` and
+`(a < b, c > (d))` stay comparisons, because values are `camelCase`. A constant argument
+that is a bare name goes in braces: `count<{ n }>()`.
 
 ---
 
@@ -455,6 +467,12 @@ outer: for row in &grid {
 
 `if`, `match`, `loop` and blocks are expressions, as in Rust. Rust has no `?:`; use `if`.
 
+Without the `'`, `break name` reads as Rust's `break 'name` when an enclosing loop or block
+is labeled `name`, and as `break name` (a value) otherwise. `break outer outer + 1` is the
+label `outer` with a value. To break with a value that has the same name as an enclosing
+label, parenthesize it: `break (outer)`. As in Rust, labels don't reach into function
+literals.
+
 ---
 
 ## Structs
@@ -503,6 +521,10 @@ println("{}", m.0)
 
 Fields are one per line, or separated by `;` on one line. Struct literals keep commas,
 the `id` shorthand and `..base`, as in Rust.
+
+`Marker.hello()` names the method `hello` on the type `Marker` (exception 7), the way
+`Task.new()` does, so a method taking `self` is called on a value. For a unit struct, put
+the value in parentheses: `(Marker).hello()`, or bind it first: `let m = Marker`.
 
 ---
 
@@ -686,7 +708,7 @@ public func (t: Task) intoTitle() -> string { t.title }
 | `&self` | `&self` | `(t: &Task)` |
 | `&mut self` | `&mut self` | `(t: &mut Task)` |
 | `self` | `self` | `(t: Task)` |
-| `mut self` | `var self` | `(t: Task)`, then `var t = t` |
+| `mut self` | `var self` | `(var t: Task)` |
 
 The usual style: flat functions for a type's own methods, and a block when you have an
 associated function such as `new` or a large type. A type can mix both, but each method
@@ -2276,7 +2298,7 @@ async func main() -> Result<(), StoreError> {
 | `let mut x = 0;` | `var x = 0` |
 | `pub`, `pub(crate)` | `public`, `package` |
 | `a::b::C` | `a.b.C` |
-| `"5".parse::<i64>()` | `let n: int64 = "5".parse()` |
+| `"5".parse::<i64>()`, `Vec::<i32>::new()` | `"5".parse<int64>()`, `Vec<int32>.new()` |
 | `impl T { … }` | `implement T { … }` or `func (t: &T) m()` |
 | `impl Tr for T { … }` | `implement Tr for T { … }` |
 | `T::new()` | `T.new()` |

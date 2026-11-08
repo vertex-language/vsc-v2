@@ -2,7 +2,7 @@
 //!
 //! The tree follows Rust's, with the changes the grammar needs: source files
 //! with a `package` declaration and imports, `class` items, flat receivers,
-//! origins in place of lifetimes, function literals, and built-ins such as
+//! quote-free lifetimes, function literals, and built-ins such as
 //! `vec[…]` and `asm(…)` instead of macro calls.
 
 pub mod ast;

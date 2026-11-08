@@ -79,7 +79,7 @@ fn generics_of(tcx: TyCtxt<'_>, def: DefId) -> Generics {
         for p in &g.params {
             let index = (parent_count + own_params.len()) as u32;
             let kind = match &p.kind {
-                hir::GenericParamKind::Origin => GenericParamDefKind::Origin,
+                hir::GenericParamKind::Lifetime => GenericParamDefKind::Lifetime,
                 hir::GenericParamKind::Type { default } => GenericParamDefKind::Type { has_default: default.is_some(), synthetic: false },
                 hir::GenericParamKind::Const { default, .. } => GenericParamDefKind::Const { has_default: default.is_some() },
             };
@@ -223,10 +223,10 @@ fn predicates_of<'tcx>(tcx: TyCtxt<'tcx>, def: DefId) -> GenericPredicates<'tcx>
                     let ty = icx.lower_ty(bounded_ty);
                     icx.lower_bounds(ty, bounds, &mut out);
                 }
-                hir::WherePredicate::Origin { span, origin, bounds } => {
-                    let r = icx.lower_origin(origin);
+                hir::WherePredicate::Lifetime { span, lifetime, bounds } => {
+                    let r = icx.lower_lifetime(lifetime);
                     for b in bounds {
-                        let b = icx.lower_origin(b);
+                        let b = icx.lower_lifetime(b);
                         out.push((Clause::RegionOutlives(r, b), *span));
                     }
                 }

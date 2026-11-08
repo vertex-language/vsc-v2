@@ -1,13 +1,13 @@
 //! Resolving names in signatures and bodies (rustc's `late.rs`).
 //!
 //! Scopes are ribs, innermost last. An `Item` rib is a barrier: a nested item
-//! can't see the locals, generic parameters, origins or labels outside it.
+//! can't see the locals, generic parameters, lifetimes or labels outside it.
 
 use vsc_ast::visit::{self, AssocCtxt, FnKind, Visitor};
 use vsc_ast::*;
 use vsc_data_structures::FxHashMap;
 use vsc_errors::{Applicability, ErrCode};
-use vsc_hir::def::{CtorKind, DefKind, Namespace, OriginRes, PartialRes, PerNS, Res};
+use vsc_hir::def::{CtorKind, DefKind, Namespace, LifetimeRes, PartialRes, PerNS, Res};
 use vsc_span::def_id::LocalDefId;
 use vsc_span::{Ident, Span, Symbol, kw};
 
@@ -21,6 +21,9 @@ enum RibKind {
     Item,
     /// A constant's value: no locals from outside (E0435).
     Constant,
+    /// A function literal or `async` block, for labels: the labels outside
+    /// can't be reached from inside.
+    FnLiteral,
 }
 
 struct Rib<R> {
@@ -111,7 +114,7 @@ struct LateResolutionVisitor<'r, 'a> {
     package: LocalDefId,
     file: usize,
     ribs: PerNS<Vec<Rib<Res>>>,
-    origin_ribs: Vec<Rib<OriginRes>>,
+    lifetime_ribs: Vec<Rib<LifetimeRes>>,
     label_ribs: Vec<Rib<NodeId>>,
     /// The bindings of the pattern (or parameter list) being resolved: name →
     /// (binding id, span). Or-patterns push one map per alternative.
@@ -125,7 +128,7 @@ impl<'r, 'a> LateResolutionVisitor<'r, 'a> {
             package,
             file,
             ribs: PerNS::default(),
-            origin_ribs: Vec::new(),
+            lifetime_ribs: Vec::new(),
             label_ribs: Vec::new(),
             pat_bindings: Vec::new(),
         }
@@ -146,18 +149,18 @@ impl<'r, 'a> LateResolutionVisitor<'r, 'a> {
     fn with_item_ribs<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
         self.ribs.type_ns.push(Rib::new(RibKind::Item));
         self.ribs.value_ns.push(Rib::new(RibKind::Item));
-        self.origin_ribs.push(Rib::new(RibKind::Item));
+        self.lifetime_ribs.push(Rib::new(RibKind::Item));
         self.label_ribs.push(Rib::new(RibKind::Item));
         let r = f(self);
         self.ribs.type_ns.pop();
         self.ribs.value_ns.pop();
-        self.origin_ribs.pop();
+        self.lifetime_ribs.pop();
         self.label_ribs.pop();
         r
     }
 
     fn with_label_barrier<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
-        self.label_ribs.push(Rib::new(RibKind::Item));
+        self.label_ribs.push(Rib::new(RibKind::FnLiteral));
         let r = f(self);
         self.label_ribs.pop();
         r
@@ -220,7 +223,8 @@ impl<'r, 'a> LateResolutionVisitor<'r, 'a> {
             match rib.kind {
                 RibKind::Item => crossed_item = true,
                 RibKind::Constant => crossed_const = true,
-                RibKind::Normal => {}
+                // Only labels have function-literal barriers.
+                RibKind::Normal | RibKind::FnLiteral => {}
             }
         }
         if let Some(b) = self.r.module_binding(self.package, ident.name, ns) {
@@ -293,7 +297,7 @@ impl<'r, 'a> LateResolutionVisitor<'r, 'a> {
             match self.lookup(first, Namespace::TypeNS, true) {
                 Some(res) => res,
                 None => match self.lookup(first, Namespace::ValueNS, true) {
-                    // A constant or static with fields: `Origin.x`.
+                    // A constant or static with fields: `Lifetime.x`.
                     Some(res) => return PartialRes::with_unresolved_segments(res, n - 1),
                     None => {
                         self.report_failed_to_resolve(first);
@@ -421,6 +425,13 @@ impl<'r, 'a> LateResolutionVisitor<'r, 'a> {
             if let Some(hint) = rust_type_hint(ident.name) {
                 err.span_suggestion(ident.span, hint.0, hint.1, Applicability::MachineApplicable);
             }
+            // `<t>` declared a lifetime (exception 11: types are PascalCase).
+            if matches!(self.lookup_lifetime(ident), Some(LifetimeRes::Param(_))) {
+                let upper: String = ident.name.as_str().chars().take(1).flat_map(char::to_uppercase).chain(ident.name.as_str().chars().skip(1)).collect();
+                err = err
+                    .with_note(format!("`{ident}` is a lifetime parameter: lowercase generic parameters are lifetimes"))
+                    .with_help(format!("type parameters are `PascalCase`: `{upper}`"));
+            }
         }
         err.emit();
     }
@@ -431,7 +442,7 @@ impl<'r, 'a> LateResolutionVisitor<'r, 'a> {
             .struct_span_err(ident.span, "expected value, found package `self`")
             .with_code(ErrCode(424))
             .with_span_label(ident.span, "`self` value is only available in methods with a `self` parameter")
-            .with_help("in a flat method, the receiver has the name you gave it: `func (t: &Task) M()` uses `t`")
+            .with_help("in a flat method, the receiver has the name you gave it: `func (t: &Task) m()` uses `t`")
             .emit();
     }
 
@@ -479,14 +490,14 @@ impl<'r, 'a> LateResolutionVisitor<'r, 'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Origins (exception 13)
+    // Lifetimes (exception 13)
     // -----------------------------------------------------------------------
 
-    fn lookup_origin(&self, ident: Ident) -> Option<OriginRes> {
+    fn lookup_lifetime(&self, ident: Ident) -> Option<LifetimeRes> {
         if ident.name == kw::Static {
-            return Some(OriginRes::Static);
+            return Some(LifetimeRes::Static);
         }
-        for rib in self.origin_ribs.iter().rev() {
+        for rib in self.lifetime_ribs.iter().rev() {
             if let Some(&res) = rib.bindings.get(&ident.name) {
                 return Some(res);
             }
@@ -497,44 +508,35 @@ impl<'r, 'a> LateResolutionVisitor<'r, 'a> {
         None
     }
 
-    fn resolve_origin(&mut self, ident: Ident) {
-        let res = match self.lookup_origin(ident) {
+    fn resolve_lifetime(&mut self, ident: Ident) {
+        let res = match self.lookup_lifetime(ident) {
             Some(res) => res,
             None => {
                 self.r
                     .dcx()
-                    .struct_span_err(ident.span, format!("use of undeclared origin `{ident}`"))
+                    .struct_span_err(ident.span, format!("use of undeclared lifetime name `{ident}`"))
                     .with_code(ErrCode(261))
-                    .with_span_label(ident.span, "undeclared origin")
-                    .with_help(format!(
-                        "an origin names a parameter of the function, or one declared as `{ident}: Origin` in the generics"
-                    ))
+                    .with_span_label(ident.span, "undeclared lifetime")
+                    .with_help(format!("consider introducing lifetime `{ident}` here: `<{ident}>`"))
                     .emit();
-                OriginRes::Err
+                LifetimeRes::Err
             }
         };
-        self.r.origin_res_map.insert(ident.span, res);
+        self.r.lifetime_res_map.insert(ident.span, res);
     }
 
-    /// A generic argument that names an origin rather than a type: `src` in
-    /// `Highlight<src>`, or `doc` in `Lines<[doc]>`.
-    fn generic_arg_as_origin(&mut self, ty: &Ty) -> bool {
-        let ident = match &ty.kind {
-            TyKind::Path(None, p) => p.as_ident(),
-            TyKind::Slice(inner) => match &inner.kind {
-                TyKind::Path(None, p) => p.as_ident(),
-                _ => None,
-            },
-            _ => None,
-        };
-        let Some(ident) = ident else { return false };
+    /// A generic argument that names a lifetime rather than a type: `src` in
+    /// `Highlight<src>`.
+    fn generic_arg_as_lifetime(&mut self, ty: &Ty) -> bool {
+        let TyKind::Path(None, p) = &ty.kind else { return false };
+        let Some(ident) = p.as_ident() else { return false };
         // A bare name that is a type stays a type.
-        if matches!(ty.kind, TyKind::Path(..)) && self.lookup(ident, Namespace::TypeNS, true).is_some() {
+        if self.lookup(ident, Namespace::TypeNS, true).is_some() {
             return false;
         }
-        match self.lookup_origin(ident) {
+        match self.lookup_lifetime(ident) {
             Some(res) if ident.name != kw::Static => {
-                self.r.origin_res_map.insert(ident.span, res);
+                self.r.lifetime_res_map.insert(ident.span, res);
                 true
             }
             _ => false,
@@ -550,7 +552,7 @@ impl<'r, 'a> LateResolutionVisitor<'r, 'a> {
     fn with_generics<T>(&mut self, generics: &Generics, extra: &[LocalDefId], f: impl FnOnce(&mut Self) -> T) -> T {
         self.ribs.type_ns.push(Rib::new(RibKind::Normal));
         self.ribs.value_ns.push(Rib::new(RibKind::Normal));
-        self.origin_ribs.push(Rib::new(RibKind::Normal));
+        self.lifetime_ribs.push(Rib::new(RibKind::Normal));
         let mut seen: FxHashMap<Symbol, Span> = FxHashMap::default();
         for p in &generics.params {
             if let Some(&prev) = seen.get(&p.ident.name) {
@@ -593,7 +595,7 @@ impl<'r, 'a> LateResolutionVisitor<'r, 'a> {
         let r = f(self);
         self.ribs.type_ns.pop();
         self.ribs.value_ns.pop();
-        self.origin_ribs.pop();
+        self.lifetime_ribs.pop();
         r
     }
 
@@ -601,8 +603,8 @@ impl<'r, 'a> LateResolutionVisitor<'r, 'a> {
         let kind = self.r.defs[def].kind;
         let res = Res::Def(kind, def.to_def_id());
         match kind {
-            DefKind::OriginParam => {
-                self.origin_ribs.last_mut().unwrap().bindings.insert(name, OriginRes::Param(def.to_def_id()));
+            DefKind::LifetimeParam => {
+                self.lifetime_ribs.last_mut().unwrap().bindings.insert(name, LifetimeRes::Param(def.to_def_id()));
             }
             DefKind::ConstParam => self.bind(Namespace::ValueNS, name, res),
             _ => self.bind(Namespace::TypeNS, name, res),
@@ -611,7 +613,7 @@ impl<'r, 'a> LateResolutionVisitor<'r, 'a> {
 
     /// A flat receiver's introduced parameters take their kinds from the
     /// receiver type's own generics: in `func (h: &Highlight<src>) Part()`,
-    /// `src` is an origin because `Highlight` declares `src: Origin`.
+    /// `src` is a lifetime because `Highlight` declares `src: Lifetime`.
     fn settle_flat_receiver_params(&mut self, item: &Item, i: &Impl) -> Vec<LocalDefId> {
         let Some(params) = self.r.flat_receiver_params.get(&item.id).cloned() else { return Vec::new() };
         let TyKind::Path(None, path) = &i.self_ty.kind else { return params };
@@ -632,7 +634,7 @@ impl<'r, 'a> LateResolutionVisitor<'r, 'a> {
                     },
                     _ => None,
                 },
-                AngleBracketedArg::Arg(GenericArg::Origin(o)) if o.origins.len() == 1 => Some(o.origins[0]),
+                AngleBracketedArg::Arg(GenericArg::Lifetime(o)) => Some(o.ident),
                 _ => None,
             };
             let Some(name) = name else { continue };
@@ -649,16 +651,6 @@ impl<'r, 'a> LateResolutionVisitor<'r, 'a> {
     // -----------------------------------------------------------------------
 
     fn resolve_fn_decl_and_body(&mut self, decl: &FnDecl, body: Option<&Block>) {
-        // Exception 13: parameter names not already declared as generic
-        // lifetime parameters can also be referenced as origins.
-        self.origin_ribs.push(Rib::new(RibKind::Normal));
-        for p in &decl.inputs {
-            if let PatKind::Ident(_, ident, None) = p.pat.kind {
-                if self.lookup_origin(ident).is_none() {
-                    self.origin_ribs.last_mut().unwrap().bindings.insert(ident.name, OriginRes::FnParam(p.pat.id));
-                }
-            }
-        }
         self.with_rib(Namespace::ValueNS, RibKind::Normal, |this| {
             this.pat_bindings.push(FxHashMap::default());
             for p in &decl.inputs {
@@ -676,7 +668,7 @@ impl<'r, 'a> LateResolutionVisitor<'r, 'a> {
                 this.visit_block(b);
             }
         });
-        self.origin_ribs.pop();
+        self.lifetime_ribs.pop();
     }
 
     // -----------------------------------------------------------------------
@@ -866,13 +858,47 @@ impl<'r, 'a> LateResolutionVisitor<'r, 'a> {
         r
     }
 
+    /// `break name` where `name` is neither a value nor an enclosing label
+    /// (the parser reads it as a value, since no enclosing loop has that
+    /// label). A label the name could mean is outside a function literal:
+    /// Rust's E0767. Returns whether it reported.
+    fn report_break_name(&mut self, v: &Expr) -> bool {
+        let ExprKind::Path(None, p) = &v.kind else { return false };
+        let Some(ident) = p.as_ident() else { return false };
+        if self.lookup(ident, Namespace::ValueNS, true).is_some() {
+            return false;
+        }
+        let mut crossed = false;
+        for rib in self.label_ribs.iter().rev() {
+            if rib.bindings.contains_key(&ident.name) {
+                if crossed {
+                    self.r
+                        .dcx()
+                        .struct_span_err(ident.span, format!("use of unreachable label `{ident}`"))
+                        .with_code(ErrCode(767))
+                        .with_span_label(ident.span, format!("unreachable label `{ident}`"))
+                        .with_note("labels are unreachable through functions and function literals")
+                        .emit();
+                    return true;
+                }
+                break;
+            }
+            match rib.kind {
+                RibKind::Item => break,
+                RibKind::FnLiteral => crossed = true,
+                _ => {}
+            }
+        }
+        false
+    }
+
     fn resolve_label(&mut self, label: &Label, use_id: NodeId) {
         for rib in self.label_ribs.iter().rev() {
             if let Some(&target) = rib.bindings.get(&label.ident.name) {
                 self.r.label_res_map.insert(use_id, target);
                 return;
             }
-            if rib.kind == RibKind::Item {
+            if matches!(rib.kind, RibKind::Item | RibKind::FnLiteral) {
                 break;
             }
         }
@@ -1044,11 +1070,11 @@ impl<'ast> Visitor<'ast> for LateResolutionVisitor<'_, '_> {
 
     fn visit_where_predicate(&mut self, pred: &'ast WherePredicate) {
         let WherePredicateKind::BoundPredicate { bound_generic_params, bounded_ty, bounds } = &pred.kind;
-        // `a: [b]`: an origin outliving another (Rust's `'a: 'b`).
+        // `a: [b]`: a lifetime outliving another (Rust's `'a: 'b`).
         if let TyKind::Path(None, p) = &bounded_ty.kind {
             if let Some(ident) = p.as_ident() {
-                if self.lookup(ident, Namespace::TypeNS, true).is_none() && self.lookup_origin(ident).is_some() {
-                    self.resolve_origin(ident);
+                if self.lookup(ident, Namespace::TypeNS, true).is_none() && self.lookup_lifetime(ident).is_some() {
+                    self.resolve_lifetime(ident);
                     for b in bounds {
                         self.visit_param_bound(b);
                     }
@@ -1056,7 +1082,7 @@ impl<'ast> Visitor<'ast> for LateResolutionVisitor<'_, '_> {
                 }
             }
         }
-        self.origin_ribs.push(Rib::new(RibKind::Normal));
+        self.lifetime_ribs.push(Rib::new(RibKind::Normal));
         self.ribs.type_ns.push(Rib::new(RibKind::Normal));
         for gp in bound_generic_params {
             let def = self.r.local_def_id(gp.id);
@@ -1067,11 +1093,11 @@ impl<'ast> Visitor<'ast> for LateResolutionVisitor<'_, '_> {
             self.visit_param_bound(b);
         }
         self.ribs.type_ns.pop();
-        self.origin_ribs.pop();
+        self.lifetime_ribs.pop();
     }
 
     fn visit_poly_trait_ref(&mut self, t: &'ast PolyTraitRef) {
-        self.origin_ribs.push(Rib::new(RibKind::Normal));
+        self.lifetime_ribs.push(Rib::new(RibKind::Normal));
         self.ribs.type_ns.push(Rib::new(RibKind::Normal));
         for gp in &t.bound_generic_params {
             let def = self.r.local_def_id(gp.id);
@@ -1079,7 +1105,7 @@ impl<'ast> Visitor<'ast> for LateResolutionVisitor<'_, '_> {
         }
         self.visit_trait_ref(&t.trait_ref);
         self.ribs.type_ns.pop();
-        self.origin_ribs.pop();
+        self.lifetime_ribs.pop();
     }
 
     fn visit_trait_ref(&mut self, t: &'ast TraitRef) {
@@ -1087,15 +1113,13 @@ impl<'ast> Visitor<'ast> for LateResolutionVisitor<'_, '_> {
         self.visit_path_args(&t.path);
     }
 
-    fn visit_origin_ref(&mut self, o: &'ast OriginRef) {
-        for &ident in &o.origins {
-            self.resolve_origin(ident);
-        }
+    fn visit_lifetime_ref(&mut self, o: &'ast Lifetime) {
+        self.resolve_lifetime(o.ident);
     }
 
     fn visit_generic_arg(&mut self, arg: &'ast GenericArg) {
         if let GenericArg::Type(ty) = arg {
-            if self.generic_arg_as_origin(ty) {
+            if self.generic_arg_as_lifetime(ty) {
                 return;
             }
             // A name that isn't a type but is a constant or const parameter
@@ -1120,7 +1144,7 @@ impl<'ast> Visitor<'ast> for LateResolutionVisitor<'_, '_> {
         match &ty.kind {
             TyKind::Path(qself, path) => self.resolve_qself_path(qself, path, ty.id, PathSource::Type),
             TyKind::FnPtr(f) => {
-                self.origin_ribs.push(Rib::new(RibKind::Normal));
+                self.lifetime_ribs.push(Rib::new(RibKind::Normal));
                 for gp in &f.generic_params {
                     let def = self.r.local_def_id(gp.id);
                     self.bind_generic_param(gp.ident.name, def);
@@ -1129,10 +1153,10 @@ impl<'ast> Visitor<'ast> for LateResolutionVisitor<'_, '_> {
                     self.visit_ty(&p.ty);
                 }
                 self.visit_fn_ret_ty(&f.decl.output);
-                self.origin_ribs.pop();
+                self.lifetime_ribs.pop();
             }
             TyKind::FuncValue(f) => {
-                self.origin_ribs.push(Rib::new(RibKind::Normal));
+                self.lifetime_ribs.push(Rib::new(RibKind::Normal));
                 for gp in &f.generic_params {
                     let def = self.r.local_def_id(gp.id);
                     self.bind_generic_param(gp.ident.name, def);
@@ -1141,7 +1165,7 @@ impl<'ast> Visitor<'ast> for LateResolutionVisitor<'_, '_> {
                     self.visit_ty(&p.ty);
                 }
                 self.visit_fn_ret_ty(&f.decl.output);
-                self.origin_ribs.pop();
+                self.lifetime_ribs.pop();
             }
             TyKind::Array(t, len) => {
                 self.visit_ty(t);
@@ -1246,6 +1270,9 @@ impl<'ast> Visitor<'ast> for LateResolutionVisitor<'_, '_> {
                     self.resolve_label(l, e.id);
                 }
                 if let Some(v) = value {
+                    if label.is_none() && self.report_break_name(v) {
+                        return;
+                    }
                     self.visit_expr(v);
                 }
             }

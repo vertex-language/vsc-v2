@@ -76,7 +76,7 @@ impl DefCollector<'_, '_> {
             .iter()
             .map(|p| {
                 let kind = match p.kind {
-                    GenericParamKind::Origin => DefKind::OriginParam,
+                    GenericParamKind::Lifetime => DefKind::LifetimeParam,
                     GenericParamKind::Type { .. } => DefKind::TyParam,
                     GenericParamKind::Const { .. } => DefKind::ConstParam,
                 };
@@ -209,7 +209,7 @@ impl<'ast> Visitor<'ast> for DefCollector<'_, '_> {
 
     fn visit_generic_param(&mut self, p: &'ast GenericParam) {
         let kind = match p.kind {
-            GenericParamKind::Origin => DefKind::OriginParam,
+            GenericParamKind::Lifetime => DefKind::LifetimeParam,
             GenericParamKind::Type { .. } => DefKind::TyParam,
             GenericParamKind::Const { .. } => DefKind::ConstParam,
         };

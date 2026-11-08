@@ -3,7 +3,7 @@
 use vsc_ast::token::{Delimiter, TokenKind};
 use vsc_ast::{
     AnonConst, DUMMY_NODE_ID, Extern, FnDecl, FnPtrTy, FnRetTy, FuncValueTy, GenericBound, GenericParam, MutTy,
-    Mutability, OriginRef, P, Param, Pat, PatKind, Safety, Ty, TyKind,
+    Mutability, Lifetime, P, Param, Pat, PatKind, Safety, Ty, TyKind,
 };
 use vsc_errors::Applicability;
 use vsc_span::{Ident, Span, kw, sym};
@@ -53,7 +53,7 @@ impl<'a> Parser<'a> {
         {
             self.parse_fn_ty(Vec::new())?
         } else if self.check_keyword(kw::For) {
-            let params = self.parse_for_origins()?;
+            let params = self.parse_for_lifetimes()?;
             if self.check_keyword(kw::Func) || self.check_keyword(kw::Unsafe) || self.check_keyword(kw::Extern) {
                 self.parse_fn_ty(params)?
             } else {
@@ -182,9 +182,7 @@ impl<'a> Parser<'a> {
             return Ok(TyKind::Ref(None, MutTy { ty: inner, mutbl: Mutability::Not }));
         }
         self.bump(); // `&`
-        let origin = if self.check(TokenKind::OpenBracket) && self.is_origin_after_ampersand() {
-            Some(self.parse_origin_ref()?)
-        } else if let Some(label) = self.token.lifetime() {
+        let lifetime = if let Some(label) = self.token.lifetime() {
             self.bump();
             let name = label.name.as_str().trim_start_matches('\'');
             self.dcx()
@@ -199,27 +197,22 @@ impl<'a> Parser<'a> {
             if name == "_" {
                 None
             } else {
-                Some(OriginRef {
-                    origins: vec![Ident::new(vsc_span::Symbol::intern(name), label.span)],
-                    span: label.span,
-                })
+                Some(Lifetime { ident: Ident::new(vsc_span::Symbol::intern(name), label.span) })
             }
         } else if self.is_lifetime_after_ampersand() {
             if self.eat_keyword(kw::Underscore) {
                 None
             } else if self.eat_keyword(kw::Static) {
-                let span = self.prev_token.span;
-                Some(OriginRef { origins: vec![Ident::new(kw::Static, span)], span })
+                Some(Lifetime { ident: Ident::new(kw::Static, self.prev_token.span) })
             } else {
-                let ident = self.parse_ident()?;
-                Some(OriginRef { origins: vec![ident], span: ident.span })
+                Some(Lifetime { ident: self.parse_ident()? })
             }
         } else {
             None
         };
         let mutbl = if self.eat_keyword(kw::Mut) { Mutability::Mut } else { Mutability::Not };
         let ty = self.parse_ty_no_plus()?;
-        Ok(TyKind::Ref(origin, MutTy { ty, mutbl }))
+        Ok(TyKind::Ref(lifetime, MutTy { ty, mutbl }))
     }
 
     /// After `&`, is the current token a quote-free lifetime (`&a T`,
@@ -246,46 +239,8 @@ impl<'a> Parser<'a> {
         next.is_keyword(kw::Mut) || next.can_begin_type()
     }
 
-    /// After `&`, is `[…]` an origin list rather than a slice type? It is when
-    /// the brackets hold only names (or `static`) and a type follows on the
-    /// same line: `&[a] string` versus `&[uint8]`.
-    fn is_origin_after_ampersand(&self) -> bool {
-        let Some(close) = self.group_close() else { return false };
-        let inner = &self.buf.tokens[self.pos + 1..close];
-        if inner.is_empty() {
-            return false;
-        }
-        for (i, tok) in inner.iter().enumerate() {
-            let ok = if i % 2 == 0 {
-                tok.is_non_keyword_ident() || tok.is_keyword(kw::Static)
-            } else {
-                tok.kind == TokenKind::Comma
-            };
-            if !ok {
-                return false;
-            }
-        }
-        let after = &self.buf.tokens[(close + 1).min(self.buf.tokens.len() - 1)];
-        !after.line_break_before && (after.can_begin_type() || after.is_keyword(kw::Mut))
-    }
-
-    /// `[a]`, `[a, b]`, `[static]`.
-    pub fn parse_origin_ref(&mut self) -> PResult<'a, OriginRef> {
-        let lo = self.token.span;
-        let (origins, _) = self.parse_delim_comma_seq(Delimiter::Bracket, |p| {
-            if p.check_keyword(kw::Static) {
-                let span = p.token.span;
-                p.bump();
-                Ok(Ident::new(kw::Static, span))
-            } else {
-                p.parse_ident()
-            }
-        })?;
-        Ok(OriginRef { origins, span: lo.to(self.prev_token.span) })
-    }
-
-    /// `for<a: Origin>`
-    pub fn parse_for_origins(&mut self) -> PResult<'a, Vec<GenericParam>> {
+    /// `for<a>`
+    pub fn parse_for_lifetimes(&mut self) -> PResult<'a, Vec<GenericParam>> {
         self.expect_keyword(kw::For)?;
         let generics = self.parse_generics()?;
         Ok(generics.params)

@@ -1,0 +1,32 @@
+error: generic arguments in an expression have no `::` in Vertex
+ --> $DIR/turbofish.vs:7:18
+  |
+7 |     let n = parse::<int64>("5") //~ ERROR generic arguments in an expression have no `::` in Vertex
+  |                  ^^
+help: remove the `::`
+  |
+7 |     let n = parse::<int64>("5") //~ ERROR generic arguments in an expression have no `::` in Vertex
+  |                  --
+
+error: generic arguments in an expression have no `::` in Vertex
+ --> $DIR/turbofish.vs:8:30
+  |
+8 |     let total = xs.iter().sum::<uint64>() //~ ERROR generic arguments in an expression have no `::` in Vertex
+  |                              ^^
+help: remove the `::`
+  |
+8 |     let total = xs.iter().sum::<uint64>() //~ ERROR generic arguments in an expression have no `::` in Vertex
+  |                              --
+
+error: generic arguments in an expression have no `::` in Vertex
+ --> $DIR/turbofish.vs:9:16
+  |
+9 |     let v = Vec::<int32>.new() //~ ERROR generic arguments in an expression have no `::` in Vertex
+  |                ^^
+help: remove the `::`
+  |
+9 |     let v = Vec::<int32>.new() //~ ERROR generic arguments in an expression have no `::` in Vertex
+  |                --
+
+error: aborting due to 3 previous errors
+

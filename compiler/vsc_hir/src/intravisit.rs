@@ -95,7 +95,7 @@ pub trait Visitor<'hir>: Sized {
     fn visit_trait_ref(&mut self, t: &'hir TraitRef) {
         walk_trait_ref(self, t)
     }
-    fn visit_origin(&mut self, o: &'hir Origin) {
+    fn visit_lifetime(&mut self, o: &'hir Lifetime) {
         self.visit_id(o.hir_id)
     }
     fn visit_fn_decl(&mut self, d: &'hir FnDecl) {
@@ -320,7 +320,7 @@ pub fn walk_generic_param<'v, V: Visitor<'v>>(v: &mut V, p: &'v GenericParam) {
     v.visit_id(p.hir_id);
     v.visit_ident(p.name);
     match &p.kind {
-        GenericParamKind::Origin => {}
+        GenericParamKind::Lifetime => {}
         GenericParamKind::Type { default } => {
             if let Some(t) = default {
                 v.visit_ty(t);
@@ -347,10 +347,10 @@ pub fn walk_where_predicate<'v, V: Visitor<'v>>(v: &mut V, p: &'v WherePredicate
                 v.visit_param_bound(b);
             }
         }
-        WherePredicate::Origin { origin, bounds, .. } => {
-            v.visit_origin(origin);
+        WherePredicate::Lifetime { lifetime, bounds, .. } => {
+            v.visit_lifetime(lifetime);
             for b in bounds {
-                v.visit_origin(b);
+                v.visit_lifetime(b);
             }
         }
     }
@@ -359,7 +359,7 @@ pub fn walk_where_predicate<'v, V: Visitor<'v>>(v: &mut V, p: &'v WherePredicate
 pub fn walk_param_bound<'v, V: Visitor<'v>>(v: &mut V, b: &'v GenericBound) {
     match b {
         GenericBound::Trait(t) => v.visit_poly_trait_ref(t),
-        GenericBound::Outlives(o) => v.visit_origin(o),
+        GenericBound::Outlives(o) => v.visit_lifetime(o),
         GenericBound::Use(args, _) => {
             for &a in args {
                 v.visit_ident(a);
@@ -398,8 +398,8 @@ pub fn walk_ty<'v, V: Visitor<'v>>(v: &mut V, t: &'v Ty) {
             v.visit_anon_const(len);
         }
         TyKind::Ptr(mt) => v.visit_ty(&mt.ty),
-        TyKind::Ref(origin, mt) => {
-            v.visit_origin(origin);
+        TyKind::Ref(lifetime, mt) => {
+            v.visit_lifetime(lifetime);
             v.visit_ty(&mt.ty);
         }
         TyKind::FnPtr(f) => {
@@ -420,12 +420,12 @@ pub fn walk_ty<'v, V: Visitor<'v>>(v: &mut V, t: &'v Ty) {
             }
         }
         TyKind::Path(q) => v.visit_qpath(q, t.hir_id, t.span),
-        TyKind::TraitObject(traits, origin) => {
+        TyKind::TraitObject(traits, lifetime) => {
             for p in traits {
                 v.visit_poly_trait_ref(p);
             }
-            if let Some(o) = origin {
-                v.visit_origin(o);
+            if let Some(o) = lifetime {
+                v.visit_lifetime(o);
             }
         }
         TyKind::OpaqueDef(bounds) => {
@@ -478,7 +478,7 @@ pub fn walk_generic_args<'v, V: Visitor<'v>>(v: &mut V, a: &'v GenericArgs) {
 
 pub fn walk_generic_arg<'v, V: Visitor<'v>>(v: &mut V, a: &'v GenericArg) {
     match a {
-        GenericArg::Origin(o) => v.visit_origin(o),
+        GenericArg::Lifetime(o) => v.visit_lifetime(o),
         GenericArg::Type(t) => v.visit_ty(t),
         GenericArg::Const(c) => {
             v.visit_id(c.hir_id);

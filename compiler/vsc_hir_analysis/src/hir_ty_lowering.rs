@@ -6,31 +6,28 @@
 //!   `&mut string` is `&mut String`. `cstring` is `CString`, `&cstring` is
 //!   `&CStr`. The C types (`c_int`, …) are the target's integer types.
 //! - 3: naming a class gives the `Class` lang item around the class's struct.
-//! - 13: origins are regions. In a function signature, each elided input
-//!   reference gets its own bound region, and `[a]` naming a parameter is
-//!   the region of that parameter's reference. `[a, b]` is a new bound
-//!   region that both outlive. An elided output reference follows Rust's
-//!   elision rules.
+//! - 13: lifetimes are Rust's, without the `'`. In a function signature,
+//!   each elided input reference gets its own bound region, and an elided
+//!   output reference follows Rust's elision rules.
 //! - 14: `func(T) -> U` is the `Func` lang item applied to `fn(T) -> U`.
 
-use vsc_data_structures::FxHashMap;
 use vsc_errors::ErrCode;
-use vsc_hir::def::{DefKind, IntTy, OriginRes, PrimTy, Res, UintTy};
-use vsc_hir::{self as hir, HirId, LangItem};
+use vsc_hir::def::{DefKind, IntTy, LifetimeRes, PrimTy, Res, UintTy};
+use vsc_hir::{self as hir, LangItem};
 use vsc_middle::ty::*;
 use vsc_span::def_id::DefId;
 use vsc_span::{Ident, Span, Symbol, kw, sym};
 
-/// What an elided origin means where it is.
+/// What an elided lifetime means where it is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ElidedRegions {
     /// Not allowed: struct fields, type aliases, impl headers, bounds.
     Error,
-    /// Constants and statics: `[static]`.
+    /// Constants and statics: `static`.
     Static,
     /// A function signature: see `FnRegions`.
     Fn,
-    /// A type written in a body: elided origins are erased (borrow checking
+    /// A type written in a body: elided lifetimes are erased (borrow checking
     /// infers them), `_` is a type to infer, and missing generic arguments
     /// are inferred.
     Body,
@@ -40,13 +37,9 @@ pub enum ElidedRegions {
 /// function type inside it.
 #[derive(Default)]
 struct FnRegions<'tcx> {
-    /// The binder's variables: name, and the variables that outlive it.
-    vars: Vec<(Symbol, Vec<u32>)>,
+    /// The binder's variables' names.
+    vars: Vec<Symbol>,
     in_output: bool,
-    /// Each named parameter's binding → the region its type borrows from.
-    param_regions: FxHashMap<HirId, Option<Region<'tcx>>>,
-    /// Bindings of parameters not lowered yet.
-    later_params: Vec<HirId>,
     /// The regions of the inputs that belong to this binder or are free,
     /// for output elision.
     input_regions: Vec<Region<'tcx>>,
@@ -95,22 +88,14 @@ impl<'tcx> ItemCtxt<'tcx> {
 
     /// Lowers a declaration inside a new binder.
     fn lower_binder(&mut self, decl: &hir::FnDecl, safety: Safety, abi: Option<Symbol>) -> PolyFnSig<'tcx> {
-        self.binders.push(FnRegions {
-            later_params: decl.param_bindings.iter().flatten().copied().collect(),
-            ..Default::default()
-        });
+        self.binders.push(FnRegions::default());
         let mut io = Vec::with_capacity(decl.inputs.len() + 1);
         for (i, input) in decl.inputs.iter().enumerate() {
-            let binding = decl.param_bindings.get(i).copied().flatten();
             let ty = self.lower_ty(input);
             let regions = binder_regions(ty);
             let fr = self.binders.last_mut().unwrap();
             if i == 0 && matches!(decl.implicit_self, hir::ImplicitSelfKind::RefImm | hir::ImplicitSelfKind::RefMut) {
                 fr.self_region = regions.first().copied();
-            }
-            if let Some(b) = binding {
-                fr.later_params.retain(|&p| p != b);
-                fr.param_regions.insert(b, regions.first().copied());
             }
             fr.input_regions.extend(regions);
             io.push(ty);
@@ -122,8 +107,7 @@ impl<'tcx> ItemCtxt<'tcx> {
         };
         io.push(output);
         let fr = self.binders.pop().unwrap();
-        let vars: Vec<BoundVar<'tcx>> =
-            fr.vars.iter().map(|(name, by)| BoundVar { name: *name, outlived_by: self.tcx.alloc_u32s(by) }).collect();
+        let vars: Vec<BoundVar> = fr.vars.iter().map(|&name| BoundVar { name }).collect();
         Binder {
             value: FnSig { inputs_and_output: self.tcx.mk_type_list(&io), c_variadic: decl.c_variadic, safety, abi },
             bound_vars: self.tcx.mk_bound_vars(&vars),
@@ -131,123 +115,41 @@ impl<'tcx> ItemCtxt<'tcx> {
     }
 
     /// A new variable of the innermost binder.
-    fn new_bound_region(&mut self, name: Symbol, outlived_by: Vec<u32>) -> Region<'tcx> {
+    fn new_bound_region(&mut self, name: Symbol) -> Region<'tcx> {
         let fr = self.binders.last_mut().unwrap();
         let var = fr.vars.len() as u32;
-        fr.vars.push((name, outlived_by));
+        fr.vars.push(name);
         self.tcx.mk_region(RegionKind::ReBound(DebruijnIndex::INNERMOST, BoundRegion { var }))
-    }
-
-    /// A region of binder `level`, as seen from the innermost binder. Every
-    /// region stored in a binder's `FnRegions` is relative to that binder.
-    fn shift_from(&self, level: usize, r: Region<'tcx>) -> Region<'tcx> {
-        match *r.kind() {
-            RegionKind::ReBound(d, b) => {
-                let out = (self.binders.len() - 1 - level) as u32;
-                self.tcx.mk_region(RegionKind::ReBound(DebruijnIndex(d.0 + out), b))
-            }
-            _ => r,
-        }
     }
 
     // -----------------------------------------------------------------------
     // Regions
     // -----------------------------------------------------------------------
 
-    pub fn lower_origin(&mut self, o: &hir::Origin) -> Region<'tcx> {
-        match &o.kind {
-            hir::OriginKind::Elided => self.elided_region(o.span),
-            hir::OriginKind::Named(names) if names.len() == 1 => self.named_region(names[0].0, names[0].1),
-            hir::OriginKind::Named(names) => {
-                // `[a, b]`: a new region both outlive (exception 13).
-                let regions: Vec<Region<'tcx>> = names.iter().map(|&(i, r)| self.named_region(i, r)).collect();
-                if regions.iter().any(|r| matches!(r.kind(), RegionKind::ReError)) {
-                    return self.tcx.regions.re_error;
-                }
-                if regions.windows(2).all(|w| w[0] == w[1]) {
-                    return regions[0];
-                }
-                // Only variables of the innermost binder can be joined.
-                let vars: Option<Vec<u32>> = regions
-                    .iter()
-                    .map(|r| match r.kind() {
-                        RegionKind::ReBound(d, b) if *d == DebruijnIndex::INNERMOST => Some(b.var),
-                        _ => None,
-                    })
-                    .collect();
-                match vars {
-                    Some(vars) if !self.binders.is_empty() => {
-                        let name = Symbol::intern(&names.iter().map(|(i, _)| i.as_str()).collect::<Vec<_>>().join(", "));
-                        self.new_bound_region(name, vars)
-                    }
-                    _ => {
-                        self.tcx
-                            .dcx()
-                            .struct_span_err(o.span, "an origin naming several origins can only name a function's parameters")
-                            .with_span_label(o.span, "names an origin parameter")
-                            .with_note("declare an origin parameter for the result instead: `r: Origin`, with `a: [r]` and `b: [r]`")
-                            .emit();
-                        self.tcx.regions.re_error
-                    }
-                }
-            }
+    pub fn lower_lifetime(&mut self, o: &hir::Lifetime) -> Region<'tcx> {
+        match o.kind {
+            hir::LifetimeKind::Elided => self.elided_region(o.span),
+            hir::LifetimeKind::Named(ident, res) => self.named_region(ident, res),
         }
     }
 
-    fn named_region(&mut self, ident: Ident, res: OriginRes<HirId>) -> Region<'tcx> {
+    fn named_region(&mut self, ident: Ident, res: LifetimeRes) -> Region<'tcx> {
         match res {
-            OriginRes::Static => self.tcx.regions.re_static,
-            OriginRes::Err => self.tcx.regions.re_error,
-            OriginRes::Param(def) => match self.param_index(def) {
+            LifetimeRes::Static => self.tcx.regions.re_static,
+            LifetimeRes::Err => self.tcx.regions.re_error,
+            LifetimeRes::Param(def) => match self.param_index(def) {
                 Some(index) => self.tcx.mk_early_region(index, ident.name),
-                // A `for<a: Origin>` parameter: its binder isn't represented
+                // A `for<a>` parameter: its binder isn't represented
                 // yet, so the region is left for later passes.
                 None => self.tcx.regions.re_erased,
             },
-            OriginRes::FnParam(binding) => {
-                let Some(level) = self.binders.iter().rposition(|fr| fr.param_regions.contains_key(&binding) || fr.later_params.contains(&binding))
-                else {
-                    // In a body: type checking's business.
-                    return self.tcx.regions.re_erased;
-                };
-                if self.binders[level].later_params.contains(&binding) {
-                    self.tcx
-                        .dcx()
-                        .struct_span_err(ident.span, format!("origin `{ident}` names a parameter declared after it"))
-                        .with_span_label(ident.span, "declared later in the parameter list")
-                        .emit();
-                    return self.tcx.regions.re_error;
-                }
-                match self.binders[level].param_regions[&binding] {
-                    Some(r) => {
-                        // The region prints as the parameter that names it.
-                        if let RegionKind::ReBound(_, b) = r.kind() {
-                            if let Some(v) = self.binders[level].vars.get_mut(b.var as usize) {
-                                if v.0 == kw::Empty {
-                                    v.0 = ident.name;
-                                }
-                            }
-                        }
-                        self.shift_from(level, r)
-                    }
-                    None => {
-                        self.tcx
-                            .dcx()
-                            .struct_span_err(ident.span, format!("origin `{ident}` names a parameter that doesn't borrow"))
-                            .with_span_label(ident.span, format!("`{ident}`'s type has no reference to borrow from"))
-                            .with_note("an origin names a parameter of reference type, or an origin parameter")
-                            .emit();
-                        self.tcx.regions.re_error
-                    }
-                }
-            }
         }
     }
 
     fn elided_region(&mut self, span: Span) -> Region<'tcx> {
         match self.binders.last() {
             // Inside a function's or function type's inputs: a new region.
-            Some(fr) if !fr.in_output => self.new_bound_region(kw::Empty, Vec::new()),
+            Some(fr) if !fr.in_output => self.new_bound_region(kw::Empty),
             Some(_) => self.output_elision(span),
             None => match self.elided {
                 ElidedRegions::Static => self.tcx.regions.re_static,
@@ -255,10 +157,10 @@ impl<'tcx> ItemCtxt<'tcx> {
                 ElidedRegions::Fn | ElidedRegions::Error => {
                     self.tcx
                         .dcx()
-                        .struct_span_err(span, "missing origin specifier")
+                        .struct_span_err(span, "missing lifetime specifier")
                         .with_code(ErrCode(106))
-                        .with_span_label(span, "expected a named origin")
-                        .with_help("declare an origin parameter (`src: Origin`) and borrow from it: `&[src] T`")
+                        .with_span_label(span, "expected named lifetime parameter")
+                        .with_help("consider introducing a named lifetime parameter: `<a>`, then `&a T`")
                         .emit();
                     self.tcx.regions.re_error
                 }
@@ -287,17 +189,17 @@ impl<'tcx> ItemCtxt<'tcx> {
             let mut err = self
                 .tcx
                 .dcx()
-                .struct_span_err(span, "missing origin specifier")
+                .struct_span_err(span, "missing lifetime specifier")
                 .with_code(ErrCode(106))
-                .with_span_label(span, "expected a named origin");
+                .with_span_label(span, "expected named lifetime parameter");
             if distinct.is_empty() {
                 err = err
-                    .with_help("this function's return type contains a borrowed value, but there is no parameter for it to be borrowed from")
-                    .with_help("borrow from `[static]`, or return an owned value");
+                    .with_help("this function's return type contains a borrowed value, but there is no value for it to be borrowed from")
+                    .with_help("consider using the `static` lifetime (`&static T`), or returning an owned value");
             } else {
                 err = err
-                    .with_help("this function's return type contains a borrowed value, but the signature does not say which parameter it is borrowed from")
-                    .with_help("name the parameter it borrows from: `&[a] T` borrows from parameter `a`");
+                    .with_help("this function's return type contains a borrowed value, but the signature does not say which one of the parameters it is borrowed from")
+                    .with_help("consider introducing a named lifetime parameter: `func f<a>(x: &a T, y: &a T) -> &a T`");
             }
             err.emit();
         }
@@ -351,8 +253,8 @@ impl<'tcx> ItemCtxt<'tcx> {
                 let inner = self.lower_ty(&mt.ty);
                 tcx.mk_ty(TyKind::RawPtr(inner, mt.mutbl))
             }
-            hir::TyKind::Ref(origin, mt) => {
-                let r = self.lower_origin(origin);
+            hir::TyKind::Ref(lifetime, mt) => {
+                let r = self.lower_lifetime(lifetime);
                 let inner = self.lower_ref_target(&mt.ty, mt.mutbl);
                 tcx.mk_ref(r, inner, mt.mutbl)
             }
@@ -378,7 +280,7 @@ impl<'tcx> ItemCtxt<'tcx> {
                 tcx.mk_tup(&tys)
             }
             hir::TyKind::Path(q) => self.lower_qpath(q, t.span),
-            hir::TyKind::TraitObject(traits, origin) => self.lower_trait_object(traits, origin.as_ref(), t.span),
+            hir::TyKind::TraitObject(traits, lifetime) => self.lower_trait_object(traits, lifetime.as_ref(), t.span),
             hir::TyKind::OpaqueDef(_) => {
                 tcx.dcx()
                     .struct_span_err(t.span, "`impl Trait` types aren't supported yet")
@@ -429,7 +331,7 @@ impl<'tcx> ItemCtxt<'tcx> {
                 if g.count() != 0 && self.elided == ElidedRegions::Body {
                     let args: Vec<GenericArg<'tcx>> = (0..g.count())
                         .map(|i| match g.param_at(i, self.tcx).kind {
-                            GenericParamDefKind::Origin => GenericArg::Region(self.tcx.regions.re_erased),
+                            GenericParamDefKind::Lifetime => GenericArg::Region(self.tcx.regions.re_erased),
                             GenericParamDefKind::Type { .. } => GenericArg::Type(self.fresh_ty()),
                             GenericParamDefKind::Const { .. } => GenericArg::Const(self.tcx.mk_const(ConstKind::Error)),
                         })
@@ -516,7 +418,7 @@ impl<'tcx> ItemCtxt<'tcx> {
         self.lower_binder(decl, safety, abi)
     }
 
-    fn lower_trait_object(&mut self, traits: &[hir::PolyTraitRef], origin: Option<&hir::Origin>, span: Span) -> Ty<'tcx> {
+    fn lower_trait_object(&mut self, traits: &[hir::PolyTraitRef], lifetime: Option<&hir::Lifetime>, span: Span) -> Ty<'tcx> {
         let tcx = self.tcx;
         // `Self` in a `dyn` type's trait arguments is erased, as in rustc.
         let dummy_self = tcx.types.error;
@@ -532,8 +434,8 @@ impl<'tcx> ItemCtxt<'tcx> {
             tcx.dcx().struct_span_err(span, "at least one trait is required for an object type").with_code(ErrCode(224)).emit();
             return tcx.types.error;
         }
-        let r = match origin {
-            Some(o) => self.lower_origin(o),
+        let r = match lifetime {
+            Some(o) => self.lower_lifetime(o),
             None => match self.elided {
                 ElidedRegions::Static => tcx.regions.re_static,
                 _ => tcx.regions.re_erased,
@@ -833,7 +735,7 @@ impl<'tcx> ItemCtxt<'tcx> {
 
     /// The arguments for `def`'s parameters (its parents' are `def`'s own
     /// identity, as for an associated item named from inside its
-    /// container). Missing origins are elided; missing types with defaults
+    /// container). Missing lifetimes are elided; missing types with defaults
     /// take their defaults.
     pub fn lower_generic_args(
         &mut self,
@@ -849,18 +751,18 @@ impl<'tcx> ItemCtxt<'tcx> {
             out.extend_from_slice(&tcx.identity_args(generics.parent.unwrap())[..generics.parent_count]);
         }
 
-        let (mut origins, mut types, mut consts) = (Vec::new(), Vec::new(), Vec::new());
+        let (mut lifetimes, mut types, mut consts) = (Vec::new(), Vec::new(), Vec::new());
         if let Some(a) = args {
             for arg in &a.args {
                 match arg {
-                    hir::GenericArg::Origin(o) => origins.push(o),
+                    hir::GenericArg::Lifetime(o) => lifetimes.push(o),
                     hir::GenericArg::Type(_) | hir::GenericArg::Infer(_) => types.push(arg),
                     hir::GenericArg::Const(_) => consts.push(arg),
                 }
             }
         }
         let own = &generics.own_params;
-        let want_origins = own.iter().filter(|p| p.kind == GenericParamDefKind::Origin).count();
+        let want_lifetimes = own.iter().filter(|p| p.kind == GenericParamDefKind::Lifetime).count();
         let want_types = own.iter().filter(|p| matches!(p.kind, GenericParamDefKind::Type { synthetic: false, .. })).count();
         let min_types =
             own.iter().filter(|p| matches!(p.kind, GenericParamDefKind::Type { synthetic: false, has_default: false })).count();
@@ -870,9 +772,9 @@ impl<'tcx> ItemCtxt<'tcx> {
         let arg_span = args.map_or(span, |a| a.span);
         let plural = |n: usize, what: &str| format!("{n} {what} argument{}", if n == 1 { "" } else { "s" });
 
-        if !origins.is_empty() && origins.len() != want_origins {
+        if !lifetimes.is_empty() && lifetimes.len() != want_lifetimes {
             tcx.dcx()
-                .struct_span_err(arg_span, format!("{descr} takes {} but {} {} supplied", plural(want_origins, "origin"), plural(origins.len(), "origin"), if origins.len() == 1 { "was" } else { "were" }))
+                .struct_span_err(arg_span, format!("{descr} takes {} but {} {} supplied", plural(want_lifetimes, "lifetime"), plural(lifetimes.len(), "lifetime"), if lifetimes.len() == 1 { "was" } else { "were" }))
                 .with_code(ErrCode(107))
                 .emit();
         }
@@ -903,15 +805,15 @@ impl<'tcx> ItemCtxt<'tcx> {
                 .emit();
         }
 
-        let (mut oi, mut ti, mut ci) = (origins.into_iter(), std::mem::take(&mut types).into_iter(), std::mem::take(&mut consts).into_iter());
+        let (mut oi, mut ti, mut ci) = (lifetimes.into_iter(), std::mem::take(&mut types).into_iter(), std::mem::take(&mut consts).into_iter());
         for p in own {
             let arg = match p.kind {
                 GenericParamDefKind::Type { synthetic: true, .. } if p.name == kw::SelfUpper => {
                     GenericArg::Type(self_ty.unwrap_or(tcx.types.error))
                 }
-                GenericParamDefKind::Origin => match oi.next() {
-                    Some(o) => GenericArg::Region(self.lower_origin(o)),
-                    None if want_origins > 0 => GenericArg::Region(self.elided_region(arg_span)),
+                GenericParamDefKind::Lifetime => match oi.next() {
+                    Some(o) => GenericArg::Region(self.lower_lifetime(o)),
+                    None if want_lifetimes > 0 => GenericArg::Region(self.elided_region(arg_span)),
                     None => GenericArg::Region(tcx.regions.re_error),
                 },
                 GenericParamDefKind::Type { has_default, .. } => match ti.next() {
@@ -1013,7 +915,7 @@ impl<'tcx> ItemCtxt<'tcx> {
                     }
                 }
                 hir::GenericBound::Outlives(o) => {
-                    let r = self.lower_origin(o);
+                    let r = self.lower_lifetime(o);
                     out.push((Clause::TypeOutlives(self_ty, r), o.span));
                 }
                 hir::GenericBound::Use(..) => {}

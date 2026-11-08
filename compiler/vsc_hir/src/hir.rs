@@ -12,7 +12,7 @@ use vsc_span::def_id::LocalDefId;
 use vsc_span::{Ident, Span, Spanned, Symbol};
 
 use crate::LangItem;
-use crate::def::{OriginRes, Res};
+use crate::def::{LifetimeRes, Res};
 use crate::hir_id::{HirId, ItemLocalId};
 
 pub type BinOp = Spanned<vsc_ast::BinOpKind>;
@@ -234,10 +234,6 @@ pub struct FnHeader {
 #[derive(Debug)]
 pub struct FnDecl {
     pub inputs: Vec<Ty>,
-    /// For each input written as a plain name, its binding's id: what an
-    /// origin naming the parameter refers to (exception 13). Recorded here
-    /// so declarations without bodies have it too.
-    pub param_bindings: Vec<Option<HirId>>,
     pub output: FnRetTy,
     pub c_variadic: bool,
     pub implicit_self: ImplicitSelfKind,
@@ -345,8 +341,8 @@ pub struct GenericParam {
 
 #[derive(Debug)]
 pub enum GenericParamKind {
-    /// `src: Origin` (exception 13; Rust's lifetime parameter).
-    Origin,
+    /// A lifetime parameter: `src` in `<src>` (exception 13).
+    Lifetime,
     Type { default: Option<Ty> },
     Const { ty: Ty, default: Option<AnonConst> },
 }
@@ -355,8 +351,8 @@ pub enum GenericParamKind {
 pub enum WherePredicate {
     /// `T: Bound`, including bounds written on the parameter itself.
     Bound { hir_id: HirId, span: Span, bound_generic_params: Vec<GenericParam>, bounded_ty: Ty, bounds: GenericBounds },
-    /// `a: [b]`: an origin outliving others (Rust's `'a: 'b`).
-    Origin { span: Span, origin: Origin, bounds: Vec<Origin> },
+    /// `a: [b]`: a lifetime outliving others (Rust's `'a: 'b`).
+    Lifetime { span: Span, lifetime: Lifetime, bounds: Vec<Lifetime> },
 }
 
 pub type GenericBounds = Vec<GenericBound>;
@@ -364,7 +360,7 @@ pub type GenericBounds = Vec<GenericBound>;
 #[derive(Debug)]
 pub enum GenericBound {
     Trait(PolyTraitRef),
-    Outlives(Origin),
+    Outlives(Lifetime),
     Use(Vec<Ident>, Span),
 }
 
@@ -382,20 +378,20 @@ pub struct TraitRef {
     pub hir_ref_id: HirId,
 }
 
-/// Where a reference is borrowed from (exception 13): Rust's lifetime.
+/// A lifetime, Rust's without the `'` (exception 13).
 #[derive(Clone, Debug)]
-pub struct Origin {
+pub struct Lifetime {
     pub hir_id: HirId,
     pub span: Span,
-    pub kind: OriginKind,
+    pub kind: LifetimeKind,
 }
 
 #[derive(Clone, Debug)]
-pub enum OriginKind {
+pub enum LifetimeKind {
     /// Nothing written: elided, as in Rust.
     Elided,
-    /// `[a]`, `[a, b]`, `[static]`.
-    Named(Vec<(Ident, OriginRes<HirId>)>),
+    /// `a`, `static`.
+    Named(Ident, LifetimeRes),
 }
 
 // ---------------------------------------------------------------------------
@@ -414,7 +410,7 @@ pub enum TyKind {
     Slice(Box<Ty>),
     Array(Box<Ty>, AnonConst),
     Ptr(MutTy),
-    Ref(Origin, MutTy),
+    Ref(Lifetime, MutTy),
     /// `unsafe extern "C" func(…)`
     FnPtr(Box<FnPtrTy>),
     /// `func(T) -> U` (exception 14), Rust's `Rc<dyn Fn(T) -> U>`.
@@ -422,7 +418,7 @@ pub enum TyKind {
     Never,
     Tup(Vec<Ty>),
     Path(QPath),
-    TraitObject(Vec<PolyTraitRef>, Option<Origin>),
+    TraitObject(Vec<PolyTraitRef>, Option<Lifetime>),
     /// `impl Trait`
     OpaqueDef(GenericBounds),
     Infer,
@@ -483,7 +479,7 @@ pub struct GenericArgs {
 
 #[derive(Debug)]
 pub enum GenericArg {
-    Origin(Origin),
+    Lifetime(Lifetime),
     Type(Ty),
     Const(ConstArg),
     Infer(Span),

@@ -202,34 +202,34 @@ fn shadowing_and_scopes() {
 }
 
 #[test]
-fn origins() {
+fn lifetimes() {
     let (dump, errors) = one(
-        "struct Highlight<src: Origin> {\n    text: &[src] string\n}\n\
-         implement<src: Origin> Highlight<src> {\n    func Part(&self) -> &[src] string { self.text }\n}\n\
-         func longest(a: &string, b: &string) -> &[a, b] string { a }\n\
-         const G: &[static] string = \"hi\"\n\
-         func bad() -> &[nope] string { \"\" }\n",
+        "struct Highlight<src> {\n    text: &src string\n}\n\
+         implement<src> Highlight<src> {\n    func part(&self) -> &src string { self.text }\n}\n\
+         func longest<a>(x: &a string, y: &a string) -> &a string { x }\n\
+         const g: &static string = \"hi\"\n\
+         func bad() -> &nope string { \"\" }\n",
     );
-    has(&dump, "2:13 origin `src` -> origin parameter `app.Highlight.src`");
-    has(&dump, "4:34 origin `src` -> origin parameter `app.{implementation}.src`");
-    has(&dump, "7:43 origin `a` -> parameter #29");
-    has(&dump, "7:46 origin `b` -> parameter #34");
-    has(&dump, "8:12 origin `static` -> static");
-    assert!(errors.contains("error[E0261]: use of undeclared origin `nope`"), "{errors}");
-    assert_eq!(errors.matches("error").count(), 1, "only the undeclared origin is an error:\n{errors}");
+    has(&dump, "2:12 lifetime `src` -> lifetime parameter `app.Highlight.src`");
+    has(&dump, "4:26 lifetime `src` -> lifetime parameter `app.{implementation}.src`");
+    has(&dump, "7:21 lifetime `a` -> lifetime parameter `app.longest.a`");
+    has(&dump, "7:49 lifetime `a` -> lifetime parameter `app.longest.a`");
+    has(&dump, "8:11 lifetime `static` -> static");
+    assert!(errors.contains("error[E0261]: use of undeclared lifetime name `nope`"), "{errors}");
+    assert_eq!(errors.matches("error").count(), 1, "only the undeclared lifetime is an error:\n{errors}");
 }
 
 #[test]
 fn flat_receivers() {
     let (dump, errors) = one(
-        "struct Stack<T> { items: [T; 4] }\nstruct Highlight<src: Origin> { text: &[src] string }\n\
-         func (s: &mut Stack<T>) Push(item: T) {}\n\
-         func (h: &Highlight<src>) Part() -> &[src] string { h.text }\n\
-         func (t: &Stack<T>) Bad() { self.items }\n",
+        "struct Stack<T> { items: [T; 4] }\nstruct Highlight<src> { text: &src string }\n\
+         func (s: &mut Stack<T>) push(item: T) {}\n\
+         func (h: &Highlight<src>) part() -> &src string { h.text }\n\
+         func (t: &Stack<T>) bad() { self.items }\n",
     );
     has(&dump, "3:36 type `T` -> type parameter `app.{implementation}.T`");
-    has(&dump, "4:39 origin `src` -> origin parameter `app.{implementation}.src`");
-    has(&dump, "4:53 value `h.text` -> local #41 + `text`");
+    has(&dump, "4:38 lifetime `src` -> lifetime parameter `app.{implementation}.src`");
+    has(&dump, "4:51 value `h.text` -> local #41 + `text`");
     assert!(errors.contains("error[E0424]: expected value, found package `self`"), "{errors}");
     assert!(errors.contains("in a flat method, the receiver has the name you gave it"), "{errors}");
 }
@@ -250,12 +250,14 @@ fn self_types() {
 #[test]
 fn item_barriers_and_labels() {
     let (_, errors) = one(
-        "func outer<T>(x: int64) {\n    func inner() -> int64 { x }\n    func generic(v: T) {}\n    a: loop { break b }\n    let f = func() { break a }\n}\n",
+        "func outer<T>(x: int64) {\n    func inner() -> int64 { x }\n    func generic(v: T) {}\n    a: loop { break b }\n    let f = func() { break a }\n    c: loop { let g = func() { break c } }\n}\n",
     );
     assert!(errors.contains("error[E0434]: can't capture dynamic environment in a function item"), "{errors}");
     assert!(errors.contains("error[E0401]: can't use generic parameters from outer item"), "{errors}");
-    assert!(errors.contains("error[E0426]: use of undeclared label `b`"), "{errors}");
-    assert!(errors.contains("error[E0426]: use of undeclared label `a`"), "{errors}");
+    // `break b` with no enclosing `b:` breaks with the value `b`.
+    assert!(errors.contains("error[E0425]: cannot find value `b` in this scope"), "{errors}");
+    assert!(errors.contains("error[E0425]: cannot find value `a` in this scope"), "{errors}");
+    assert!(errors.contains("error[E0767]: use of unreachable label `c`"), "{errors}");
 }
 
 #[test]

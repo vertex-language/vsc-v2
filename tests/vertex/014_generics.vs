@@ -108,7 +108,6 @@ func main() {
     println("sum bools {}", sumAll(&[true, true, false]))
     println("{} {} {}", identity(5), identity("str"), identity('c'))
     let z: int32 = make()
-    let half: float64 = make()
-    println("{} {}", z, half)
+    println("{} {}", z, make<float64>())
     println("evens {}", totalOf(&Evens))
 }

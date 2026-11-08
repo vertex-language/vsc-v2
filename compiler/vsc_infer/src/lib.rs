@@ -87,7 +87,7 @@ impl<'tcx> InferCtxt<'tcx> {
         let g = self.tcx.generics_of(def);
         let args: Vec<GenericArg<'tcx>> = (0..g.count())
             .map(|i| match g.param_at(i, self.tcx).kind {
-                GenericParamDefKind::Origin => GenericArg::Region(self.tcx.regions.re_erased),
+                GenericParamDefKind::Lifetime => GenericArg::Region(self.tcx.regions.re_erased),
                 GenericParamDefKind::Type { .. } => GenericArg::Type(self.next_ty_var()),
                 GenericParamDefKind::Const { .. } => GenericArg::Const(self.tcx.mk_const(ConstKind::Error)),
             })

@@ -148,7 +148,8 @@ Writing the exceptions as productions forced some choices that the proposal does
 - **`func(T)` versus raw function pointers.** A function type with no qualifier, `func(uint)`, is a function value (Rust's `Rc<dyn Fn>`). With `unsafe` or `extern`, it is a raw function pointer (`unsafe extern "C" func(…)`). Rust's safe, Rust-ABI pointer `fn(i32) -> i32` has no spelling of its own; named functions convert to `func(T)` instead.
 - **A literal versus a flat receiver.** At item level, `func (t: &Task) isOpen()` has a name after the parentheses; a function literal `func(t) { … }` is followed by `{` or `->`.
 - **Generics on flat receivers.** Type parameters in a flat receiver's type are introduced by naming them, as in Go: `func (s: &Stack<T>) push(v: T)`. Bounds on them need an `implement` block.
-- **Loop labels drop `'` too.** Exception 13 removes the tick from both lifetimes and loop labels: `outer: for … { break outer }`, as in Go, Swift and TypeScript. In `break label expr`, the first identifier is the label; in `break name`, name resolution checks whether `name` is an enclosing loop label or a value expression.
+- **Loop labels drop `'` too.** Exception 13 removes the tick from both lifetimes and loop labels: `outer: for … { break outer }`, as in Go, Swift and TypeScript. In `break name …`, `name` is the label when an enclosing loop or labeled block has that label, and the start of the value otherwise. Labels don't reach into function literals or nested items. To break with a value that shares an enclosing label's name, parenthesize it: `break (outer)`.
+- **Generic arguments in expressions drop `::`.** `make<float64>()`, `Vec<int32>.new()`, `Pair<int64> { a: 1, b: 2 }`, `Option<int32>.None` and `xs.sum<uint64>()`. After a name in an expression, `<` starts generic arguments when everything up to the matching `>` is made of types, each argument starts the way a type does (a `PascalCase` name, a built-in type, a package path, `&`, `*`, `[`, `(`, `func`, `dyn`, `impl`, `_`, a literal or a `{ … }` constant), and the `>` is followed by `(`, `.`, `{`, `?`, a closing bracket, `,`, `;` or a line break. Otherwise `<` is less-than, so `a < b` and `(a < b, c > (d))` stay comparisons. This is C#'s rule, as in Kotlin and TypeScript, narrowed by Vertex's casing. Lifetimes can't be passed in an expression, and a constant argument that is a bare name is written in braces: `count<{ n }>()`.
 - **Literal suffixes stay Rust's.** `1u8`, `2.5f32` and other suffixes still lex. With Vertex's type names they would read `1uint8`; whether to keep suffixes at all is open.
 - **Removed Rust keywords stay reserved.** `fn`, `mod`, `move`, `pub`, `crate` and `super` can't be used as names, so Rust code never parses with a different meaning.
 - **Struct-like enum variants use newlines too.** `Parse { line: int64; message: string }` follows the struct field rule. The proposal's exception 10 example writes this variant with commas, which this grammar doesn't accept.
@@ -911,7 +912,7 @@ Function ->
         FunctionReturnType? WhereClause?
         BlockExpression?
 
-Receiver -> `(` OuterAttribute* IDENTIFIER `:` Type `)`
+Receiver -> `(` OuterAttribute* `var`? IDENTIFIER `:` Type `)`
 
 FunctionQualifiers -> `const`? `async`? ItemSafety?[^extern-safe] (`extern` Abi?)?
 
@@ -941,7 +942,7 @@ FunctionReturnType -> `->` Type
 **Changes from Rust:**
 
 - Changed `Function` (exceptions 4, 8, 10): `fn` → `func`. Adds the flat `Receiver`. A missing body ends the declaration instead of `;`.
-- Added `Receiver` (exception 8): Go's method receiver, with Rust's `&`, `&mut` or by-value types: `func (t: &Task) isOpen()`.
+- Added `Receiver` (exception 8): Go's method receiver, with Rust's `&`, `&mut` or by-value types: `func (t: &Task) isOpen()`. `var` makes it a mutable binding, as on any parameter: `func (var t: Task) bumped()`.
 - Changed `FunctionQualifiers`: Vertex has one edition (Rust 2024), so the edition notes go.
 - Changed `ShorthandSelf` (exceptions 5, 13): `mut self` → `var self`; `&'a self` → `&a self`.
 - Changed `TypedSelf` (exception 5): `mut self: T` → `var self: T`.
@@ -1851,7 +1852,7 @@ BreakExpression -> `break` IDENTIFIER? Expression?
 
 **Changes from Rust:**
 
-- Changed `BreakExpression` (exception 13): No `'`: `break outer`.
+- Changed `BreakExpression` (exception 13): No `'`: `break outer`. The identifier is a label only when it names an enclosing loop or labeled block; otherwise it begins the value.
 
 *Labeled block expressions*
 
@@ -2489,7 +2490,7 @@ SimplePathSegment -> IDENTIFIER
 PathInExpression ->
     PathExprSegment (`.` PathExprSegment)*
 
-PathExprSegment -> PathIdentSegment
+PathExprSegment -> PathIdentSegment GenericArgs?
 
 PathIdentSegment ->
     IDENTIFIER | `self` | `Self`
@@ -2523,7 +2524,7 @@ GenericArgsBounds ->
 **Changes from Rust:**
 
 - Changed `PathInExpression` (exception 7): `.` separates segments. No leading `::`.
-- Changed `PathExprSegment` (exception 7): No `::<…>` generic arguments in expressions. Explicit types come from annotations (open question 1 in the proposal).
+- Changed `PathExprSegment` (exception 7): Generic arguments follow the segment without `::`: `make<float64>()`. `<` begins them only where it can't be a comparison (see [Decisions this grammar makes](#decisions-this-grammar-makes)); `GenericArgs` here is the angle-bracketed form.
 - Changed `PathIdentSegment` (exceptions 1, 12): No `super`, `crate` or `$crate`.
 
 *Qualified paths*

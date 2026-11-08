@@ -1,0 +1,10 @@
+error[E0061]: `hello` is a method, so `Marker` needs a value to call it on
+  --> $DIR/unit-struct-method.vs:14:13
+   |
+14 |     let a = Marker.hello() //~ ERROR `hello` is a method, so `Marker` needs a value to call it on
+   |             ^^^^^^^^^^^^
+   |
+   = help: `Marker.hello` names the method on the type; to call it on the unit value, write `(Marker).hello(…)`
+
+error: aborting due to 1 previous error
+

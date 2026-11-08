@@ -154,7 +154,6 @@ symbols! {
         c_double,
         c_void,
         // End of built-in names.
-        Origin,
 
         // Primitive type names (exception 2).
         bool,

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use vsc_data_structures::{FxHashMap, FxHashSet};
 use vsc_errors::SharedBuffer;
-use vsc_hir::def::{DefKind, OriginRes, Res};
+use vsc_hir::def::{DefKind, Res};
 use vsc_hir::intravisit::{self, Visitor};
 use vsc_hir::*;
 use vsc_session::ParseSess;
@@ -55,7 +55,7 @@ fn lower(src: &str) -> Lowered {
 /// - every node's id is unique and belongs to the owner it's in;
 /// - every owner is reachable from the crate root, and every item-like
 ///   definition is an owner;
-/// - every use of a local names a binding pattern, as does every origin
+/// - every use of a local names a binding pattern, as does every lifetime
 ///   naming a parameter;
 /// - every `break` and `continue` target is a loop or a labeled block.
 fn validate(l: &Lowered) -> Vec<String> {
@@ -183,24 +183,12 @@ impl<'hir> Visitor<'hir> for Validator<'hir> {
         intravisit::walk_pat(self, p)
     }
 
-    fn visit_fn_decl(&mut self, d: &'hir FnDecl) {
-        self.bindings.extend(d.param_bindings.iter().flatten().copied());
-        intravisit::walk_fn_decl(self, d)
-    }
-
     fn visit_path(&mut self, p: &'hir Path, _id: HirId) {
         self.check_res(p.res, p.span);
         intravisit::walk_path(self, p)
     }
 
-    fn visit_origin(&mut self, o: &'hir Origin) {
-        if let OriginKind::Named(names) = &o.kind {
-            for (ident, res) in names {
-                if let OriginRes::FnParam(id) = res {
-                    self.local_uses.push((ident.span, *id));
-                }
-            }
-        }
+    fn visit_lifetime(&mut self, o: &'hir Lifetime) {
         self.visit_id(o.hir_id)
     }
 
@@ -420,23 +408,6 @@ fn nested_items_are_owners() {
     let owners = l.krate.owners.iter().filter(|o| o.is_some()).count();
     // The crate root, `outer`, `inner` and `Local`.
     assert_eq!(owners, 4);
-}
-
-#[test]
-fn origins_naming_parameters_point_at_bindings() {
-    let l = lower("func first(a: &string, b: &string) -> &[a] string { a }");
-    assert_valid(&l);
-    assert!(l.diagnostics.is_empty(), "{}", l.diagnostics);
-    let Some(info) = l.krate.owners.iter().flatten().find(|o| matches!(o.node, OwnerNode::Item(Item { kind: ItemKind::Fn { .. }, .. })))
-    else {
-        panic!("no function")
-    };
-    let OwnerNode::Item(Item { kind: ItemKind::Fn { sig, body, .. }, .. }) = &info.node else { unreachable!() };
-    let FnRetTy::Return(Ty { kind: TyKind::Ref(origin, _), .. }) = &sig.decl.output else { panic!("no reference return") };
-    let OriginKind::Named(names) = &origin.kind else { panic!("elided") };
-    let OriginRes::FnParam(id) = names[0].1 else { panic!("{:?}", names[0].1) };
-    let param_a = &info.bodies[&body.hir_id.local_id].params[0];
-    assert_eq!(id, param_a.pat.hir_id);
 }
 
 #[test]

@@ -220,13 +220,13 @@ pub enum AngleBracketedArg {
     Constraint(AssocItemConstraint),
 }
 
-/// A generic argument. A bare name could be a type, a const or an origin;
+/// A generic argument. A bare name could be a type, a const or a lifetime;
 /// the parser reads it as a type and name resolution fixes it up, as rustc
 /// does for const arguments.
 #[derive(Clone, Debug)]
 pub enum GenericArg {
-    /// `[a]` with `static`, or with several origins (exception 13).
-    Origin(OriginRef),
+    /// `static`, or a name name resolution found to be a lifetime.
+    Lifetime(Lifetime),
     Type(P<Ty>),
     Const(AnonConst),
 }
@@ -265,15 +265,19 @@ pub struct QSelf {
 }
 
 // ---------------------------------------------------------------------------
-// Origins (exception 13)
+// Lifetimes (exception 13)
 // ---------------------------------------------------------------------------
 
-/// `[a]`, `[a, b]` or `[static]`: the parameters or origins a reference is
-/// borrowed from. Rust writes a lifetime here.
-#[derive(Clone, Debug)]
-pub struct OriginRef {
-    pub origins: Vec<Ident>,
-    pub span: Span,
+/// A lifetime, Rust's without the `'` (exception 13): `a`, `static`, `_`.
+#[derive(Clone, Copy, Debug)]
+pub struct Lifetime {
+    pub ident: Ident,
+}
+
+impl Lifetime {
+    pub fn span(&self) -> Span {
+        self.ident.span
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -299,8 +303,8 @@ pub struct GenericParam {
 
 #[derive(Clone, Debug)]
 pub enum GenericParamKind {
-    /// `src: Origin + [b]` (Rust's `'src: 'b`). The `+ [b]` parts are bounds.
-    Origin,
+    /// `src: b` (Rust's `'src: 'b`). The `b` parts are bounds.
+    Lifetime,
     Type { default: Option<P<Ty>> },
     Const { ty: P<Ty>, kw_span: Span, default: Option<AnonConst> },
 }
@@ -310,8 +314,8 @@ pub type GenericBounds = Vec<GenericBound>;
 #[derive(Clone, Debug)]
 pub enum GenericBound {
     Trait(PolyTraitRef),
-    /// `[a]`: the type outlives `a` (Rust's `T: 'a`).
-    Outlives(OriginRef),
+    /// `a`: the type outlives `a` (Rust's `T: 'a`).
+    Outlives(Lifetime),
     /// `use<T, src>`
     Use(Vec<Ident>, Span),
 }
@@ -320,7 +324,7 @@ impl GenericBound {
     pub fn span(&self) -> Span {
         match self {
             GenericBound::Trait(t) => t.span,
-            GenericBound::Outlives(o) => o.span,
+            GenericBound::Outlives(o) => o.span(),
             GenericBound::Use(_, span) => *span,
         }
     }
@@ -328,7 +332,7 @@ impl GenericBound {
 
 #[derive(Clone, Debug)]
 pub struct PolyTraitRef {
-    /// `for<a: Origin>`
+    /// `for<a>`
     pub bound_generic_params: Vec<GenericParam>,
     pub modifiers: TraitBoundModifiers,
     pub trait_ref: TraitRef,
@@ -365,11 +369,11 @@ pub struct WherePredicate {
 
 #[derive(Clone, Debug)]
 pub enum WherePredicateKind {
-    /// `T: Trait + [a]`, `for<a: Origin> &[a] T: Trait`.
+    /// `T: Trait + a`, `for<a> &a T: Trait`.
     ///
-    /// `a: [b]` (an origin outliving another, Rust's `'a: 'b`) parses as
+    /// `a: [b]` (a lifetime outliving another, Rust's `'a: 'b`) parses as
     /// this too, with `a` as a type: only name resolution knows `a` is an
-    /// origin.
+    /// lifetime.
     BoundPredicate { bound_generic_params: Vec<GenericParam>, bounded_ty: P<Ty>, bounds: GenericBounds },
 }
 
@@ -392,8 +396,8 @@ pub enum TyKind {
     Array(P<Ty>, AnonConst),
     /// `*const T`, `*mut T`
     Ptr(MutTy),
-    /// `&T`, `&mut T`, `&[a] T` (exception 13).
-    Ref(Option<OriginRef>, MutTy),
+    /// `&T`, `&mut T`, `&a T` (exception 13).
+    Ref(Option<Lifetime>, MutTy),
     /// `unsafe extern "C" func(T) -> U`: a raw function pointer.
     FnPtr(P<FnPtrTy>),
     /// `func(T) -> U`: a function value, Rust's `Rc<dyn Fn(T) -> U>`
@@ -1356,7 +1360,7 @@ pub enum ImplOrigin {
     /// `func (t: &Task) Method()`: a one-method inherent impl. The impl has no
     /// generics of its own: in Go's style, each bare name among the receiver
     /// type's arguments (`T` in `&Stack<T>`) introduces a parameter, and
-    /// name resolution decides whether it's a type or an origin parameter
+    /// name resolution decides whether it's a type or a lifetime parameter
     /// from the type's own declaration.
     FlatReceiver { introduced_params: Vec<Ident> },
 }

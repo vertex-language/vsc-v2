@@ -437,10 +437,10 @@ impl Printer {
                     }
                     self.w("self");
                 }
-                TyKind::Ref(origin, mt) if matches!(mt.ty.kind, TyKind::ImplicitSelf) => {
+                TyKind::Ref(lifetime, mt) if matches!(mt.ty.kind, TyKind::ImplicitSelf) => {
                     self.w("&");
-                    if let Some(o) = origin {
-                        self.origin_ref(o);
+                    if let Some(o) = lifetime {
+                        self.lifetime_ref(o);
                         self.w(" ");
                     }
                     if mt.mutbl.is_mut() {
@@ -612,7 +612,7 @@ impl Printer {
             self.w(" ");
         }
         match &param.kind {
-            GenericParamKind::Origin => {
+            GenericParamKind::Lifetime => {
                 self.ident(param.ident);
                 if !param.bounds.is_empty() {
                     self.w(": ");
@@ -690,7 +690,7 @@ impl Printer {
                     self.w(")");
                 }
             }
-            GenericBound::Outlives(o) => self.origin_ref(o),
+            GenericBound::Outlives(o) => self.lifetime_ref(o),
             GenericBound::Use(idents, _) => {
                 self.w("use<");
                 self.comma_sep(idents, |p, i| p.ident(*i));
@@ -699,14 +699,8 @@ impl Printer {
         }
     }
 
-    fn origin_ref(&mut self, o: &OriginRef) {
-        if o.origins.len() == 1 {
-            self.w(o.origins[0].name.as_str());
-        } else {
-            self.w("[");
-            self.comma_sep(&o.origins, |p, i| p.w(i.name.as_str()));
-            self.w("]");
-        }
+    fn lifetime_ref(&mut self, o: &Lifetime) {
+        self.w(o.ident.name.as_str());
     }
 
     // -----------------------------------------------------------------------
@@ -751,7 +745,7 @@ impl Printer {
                 self.w("<");
                 self.comma_sep(&a.args, |p, arg| match arg {
                     AngleBracketedArg::Arg(GenericArg::Type(t)) => p.ty(t),
-                    AngleBracketedArg::Arg(GenericArg::Origin(o)) => p.origin_ref(o),
+                    AngleBracketedArg::Arg(GenericArg::Lifetime(o)) => p.lifetime_ref(o),
                     AngleBracketedArg::Arg(GenericArg::Const(c)) => p.expr(&c.value),
                     AngleBracketedArg::Constraint(c) => {
                         p.ident(c.ident);
@@ -796,10 +790,10 @@ impl Printer {
                 self.w(if mt.mutbl.is_mut() { "*mut " } else { "*const " });
                 self.ty(&mt.ty);
             }
-            TyKind::Ref(origin, mt) => {
+            TyKind::Ref(lifetime, mt) => {
                 self.w("&");
-                if let Some(o) = origin {
-                    self.origin_ref(o);
+                if let Some(o) = lifetime {
+                    self.lifetime_ref(o);
                     self.w(" ");
                 }
                 if mt.mutbl.is_mut() {
@@ -1105,6 +1099,9 @@ impl Printer {
                 self.expr(&m.receiver);
                 self.w(".");
                 self.ident(m.seg.ident);
+                if let Some(a) = &m.seg.args {
+                    self.generic_args(a);
+                }
                 self.w("(");
                 self.comma_sep(&m.args, |p, a| p.expr(a));
                 self.w(")");
@@ -1260,7 +1257,7 @@ impl Printer {
                 }
             }
             ExprKind::Underscore => self.w("_"),
-            ExprKind::Path(None, path) => self.path(path, false),
+            ExprKind::Path(None, path) => self.path(path, true),
             ExprKind::Path(Some(q), path) => self.qpath(q, path),
             ExprKind::AddrOf(kind, m, e) => {
                 self.w("&");

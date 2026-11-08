@@ -28,8 +28,8 @@ pub struct GenericParamDef {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum GenericParamDefKind {
-    /// `src: Origin` (exception 13).
-    Origin,
+    /// `src: Lifetime` (exception 13).
+    Lifetime,
     Type {
         has_default: bool,
         /// A trait's `Self`, or a flat receiver's introduced parameter.
@@ -59,7 +59,7 @@ impl Generics {
         let mut c = (0, 0, 0);
         for p in &self.own_params {
             match p.kind {
-                GenericParamDefKind::Origin => c.0 += 1,
+                GenericParamDefKind::Lifetime => c.0 += 1,
                 GenericParamDefKind::Type { synthetic: false, .. } => c.1 += 1,
                 GenericParamDefKind::Type { synthetic: true, .. } => {}
                 GenericParamDefKind::Const { .. } => c.2 += 1,

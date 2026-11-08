@@ -24,7 +24,7 @@ interpreter that runs MIR, so programs run before there is a back end.
 | Lexing | `vsc_lexer` | done |
 | Parsing | `vsc_ast`, `vsc_parse`, `vsc_ast_pretty` | done for `.vs`; every Vertex snippet in the usage guide parses |
 | Expansion | `vsc_expand`, `vsc_parse_format`, `vsc_builtin_macros` | package folders, `@cfg`, `@cfgAttr`, the format built-ins; `@derive` next |
-| Name resolution | `vsc_resolve`, `vsc_hir::def` | definitions, packages, per-file imports, `.` paths, patterns, origins, labels |
+| Name resolution | `vsc_resolve`, `vsc_hir::def` | definitions, packages, per-file imports, `.` paths, patterns, lifetimes, labels |
 | Lowering to HIR | `vsc_ast_lowering`, `vsc_hir`, `vsc_hir_pretty` | done: exception 7's fields and methods, rustc's desugarings, format built-ins |
 | Signatures | `vsc_middle` (`ty`, `TyCtxt`, queries), `vsc_passes`, `vsc_hir_analysis` | types, generics, predicates, function signatures (exceptions 2, 3, 13, 14), lang items, `break`/`continue` checks, trait impl completeness, duplicate methods |
 | Type checking bodies | `vsc_infer`, `vsc_trait_selection`, `vsc_hir_typeck` | inference, coercions, method lookup, trait selection and normalization, patterns with default binding modes, exceptions 3, 10 and 14, the function traits (calls through `Fn`/`FnMut`/`FnOnce` bounds; literals are `Fn` or `FnMut` by what they mutate, E0525); not yet `async`, operator traits |

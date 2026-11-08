@@ -86,7 +86,7 @@ struct Interners<'tcx> {
     args: RefCell<FxHashSet<&'tcx [GenericArg<'tcx>]>>,
     type_lists: RefCell<FxHashSet<&'tcx [Ty<'tcx>]>>,
     existentials: RefCell<FxHashSet<&'tcx [ExistentialPredicate<'tcx>]>>,
-    bound_vars: RefCell<FxHashSet<&'tcx [BoundVar<'tcx>]>>,
+    bound_vars: RefCell<FxHashSet<&'tcx [BoundVar]>>,
 }
 
 #[derive(Default)]
@@ -202,12 +202,8 @@ impl<'tcx> TyCtxt<'tcx> {
         intern_slice(&self.gcx.interners.existentials, &self.gcx.arena.existentials, preds)
     }
 
-    pub fn mk_bound_vars(self, vars: &[BoundVar<'tcx>]) -> &'tcx [BoundVar<'tcx>] {
+    pub fn mk_bound_vars(self, vars: &[BoundVar]) -> &'tcx [BoundVar] {
         intern_slice(&self.gcx.interners.bound_vars, &self.gcx.arena.bound_vars, vars)
-    }
-
-    pub fn alloc_u32s(self, v: &[u32]) -> &'tcx [u32] {
-        self.gcx.arena.u32s.alloc_from_iter(v.iter().copied())
     }
 
     pub fn alloc_clauses(self, v: Vec<(Clause<'tcx>, Span)>) -> &'tcx [(Clause<'tcx>, Span)] {
@@ -247,7 +243,7 @@ impl<'tcx> TyCtxt<'tcx> {
             .map(|i| {
                 let p = g.param_at(i, self);
                 match p.kind {
-                    GenericParamDefKind::Origin => GenericArg::Region(self.mk_early_region(p.index, p.name)),
+                    GenericParamDefKind::Lifetime => GenericArg::Region(self.mk_early_region(p.index, p.name)),
                     GenericParamDefKind::Type { .. } => GenericArg::Type(self.mk_param(p.index, p.name)),
                     GenericParamDefKind::Const { .. } => {
                         GenericArg::Const(self.mk_const(ConstKind::Param(ParamConst { index: p.index, name: p.name })))

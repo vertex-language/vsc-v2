@@ -338,11 +338,25 @@ impl<'a> Parser<'a> {
             return Ok(self.mk_expr_err(lo.to(span)));
         }
         let ident = self.parse_path_segment_ident()?;
+        let mut seg = PathSegment::from_ident(ident);
+        // `xs.sum<uint64>()`, or Rust's `xs.sum::<uint64>()`.
+        let generic_call = !self.at_line_break() && self.check(TokenKind::Lt) && self.is_expr_generic_args();
+        let rust_turbofish = !self.at_line_break()
+            && self.check(TokenKind::Colon)
+            && self.look_ahead(1).kind == TokenKind::Colon
+            && self.look_ahead(2).kind == TokenKind::Lt;
+        if generic_call || rust_turbofish {
+            let args = if rust_turbofish { self.parse_turbofish()? } else { self.parse_angle_args()? };
+            seg.args = Some(P::new(vsc_ast::GenericArgs::AngleBracketed(args)));
+            if !self.check(TokenKind::OpenParen) {
+                return Err(self.expected_found("`(` after a method's generic arguments"));
+            }
+        }
         if self.check(TokenKind::OpenParen) && !self.at_line_break() {
             let (args, _) =
                 self.with_res(Restrictions::NONE, |this| this.parse_delim_comma_seq(Delimiter::Parenthesis, |p| p.parse_expr()))?;
             let span = lo.to(self.prev_token.span);
-            let call = MethodCall { seg: PathSegment::from_ident(ident), receiver: e, args, span: ident.span.to(span) };
+            let call = MethodCall { seg, receiver: e, args, span: ident.span.to(span) };
             return Ok(self.mk_expr(span, ExprKind::MethodCall(P::new(call))));
         }
         Ok(self.mk_expr(lo.to(ident.span), ExprKind::Field(e, ident)))
@@ -515,23 +529,12 @@ impl<'a> Parser<'a> {
             self.bump();
             return Some(Label { ident: Self::strip_label_quote(ident) });
         }
+        // `break name` names a label only when an enclosing loop or block
+        // has that label; otherwise `name` is the value. `break (name)`
+        // breaks with a value that shares an enclosing label's name.
         if self.token.is_non_keyword_ident() {
             let (ident, _) = self.token.ident().unwrap();
-            let next = self.look_ahead(1);
-            let is_known_label = self.labels.contains(&ident.name);
-            let followed_by_value = !next.line_break_before
-                && (next.is_lit() || next.is_bool_lit() || next.is_non_keyword_ident());
-            let bare_in_labeled_ctx = (!self.labels.is_empty() || self.in_for_or_while)
-                && (next.line_break_before
-                    || matches!(
-                        next.kind,
-                        TokenKind::Semi
-                            | TokenKind::CloseBrace
-                            | TokenKind::CloseParen
-                            | TokenKind::Comma
-                            | TokenKind::Eof
-                    ));
-            if is_known_label || followed_by_value || bare_in_labeled_ctx {
+            if self.labels.contains(&ident.name) {
                 self.bump();
                 return Some(Label { ident });
             }
@@ -670,9 +673,16 @@ impl<'a> Parser<'a> {
         } else {
             self.parse_ident()?
         };
-        self.labels.push(ident.name);
         self.expect(TokenKind::Colon)?;
         let label = Some(Label { ident });
+        // The label is in scope inside what it labels.
+        self.labels.push(ident.name);
+        let e = self.parse_expr_labeled_body(label, lo);
+        self.labels.pop();
+        e
+    }
+
+    fn parse_expr_labeled_body(&mut self, label: Option<Label>, lo: Span) -> PResult<'a, P<Expr>> {
         if self.check_keyword(kw::Loop) || self.check_keyword(kw::While) || self.check_keyword(kw::For) {
             return self.parse_expr_loop_kind(label, lo);
         }
@@ -691,10 +701,7 @@ impl<'a> Parser<'a> {
         }
         if self.eat_keyword(kw::While) {
             let cond = self.parse_expr_cond()?;
-            let prev = std::mem::replace(&mut self.in_for_or_while, true);
-            let body = self.parse_block_expecting("while");
-            self.in_for_or_while = prev;
-            let body = body?;
+            let body = self.parse_block_expecting("while")?;
             return Ok(self.mk_expr(lo.to(body.span), ExprKind::While(cond, body, label)));
         }
         self.expect_keyword(kw::For)?;
@@ -705,10 +712,7 @@ impl<'a> Parser<'a> {
             return Err(err);
         }
         let iter = self.parse_expr_res(Restrictions::NO_STRUCT_LITERAL)?;
-        let prev = std::mem::replace(&mut self.in_for_or_while, true);
-        let body = self.parse_block_expecting("for");
-        self.in_for_or_while = prev;
-        let body = body?;
+        let body = self.parse_block_expecting("for")?;
         Ok(self.mk_expr(lo.to(body.span), ExprKind::ForLoop { pat, iter, body, label }))
     }
 
@@ -831,7 +835,11 @@ impl<'a> Parser<'a> {
             err.note("a function literal's body is a block: `func(x) { x + 1 }`");
             return Err(err);
         }
-        let body = self.with_res(Restrictions::NONE, |this| this.parse_block())?;
+        // Labels don't reach into a function literal (E0767).
+        let outer_labels = std::mem::take(&mut self.labels);
+        let body = self.with_res(Restrictions::NONE, |this| this.parse_block());
+        self.labels = outer_labels;
+        let body = body?;
         let closure = Closure {
             capture_clause: CaptureBy::Ref,
             asyncness,

@@ -238,7 +238,7 @@ fn walk_generic_param<V: MutVisitor>(v: &mut V, p: &mut GenericParam) {
     walk_attrs(v, &mut p.attrs);
     walk_bounds(v, &mut p.bounds);
     match &mut p.kind {
-        GenericParamKind::Origin => {}
+        GenericParamKind::Lifetime => {}
         GenericParamKind::Type { default } => {
             if let Some(d) = default {
                 v.visit_ty(d);
@@ -316,7 +316,7 @@ fn walk_generic_args<V: MutVisitor>(v: &mut V, args: &mut GenericArgs) {
                 match arg {
                     AngleBracketedArg::Arg(GenericArg::Type(t)) => v.visit_ty(t),
                     AngleBracketedArg::Arg(GenericArg::Const(c)) => walk_anon_const(v, c),
-                    AngleBracketedArg::Arg(GenericArg::Origin(_)) => {}
+                    AngleBracketedArg::Arg(GenericArg::Lifetime(_)) => {}
                     AngleBracketedArg::Constraint(c) => {
                         v.visit_id(&mut c.id);
                         if let Some(args) = &mut c.gen_args {

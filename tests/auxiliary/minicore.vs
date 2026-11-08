@@ -88,11 +88,11 @@ implement<T> Iterator for RangeInclusive<T> {
 @intrinsic("slice_len")
 public func sliceLen<T>(s: &[T]) -> uint { loop {} }
 
-public struct SliceIter<a: Origin, T> { s: &[a] [T]; i: uint }
+public struct SliceIter<a, T> { s: &a [T]; i: uint }
 
-implement<a: Origin, T> Iterator for SliceIter<a, T> {
-    type Item = &[a] T
-    func next(&mut self) -> Option<&[a] T> {
+implement<a, T> Iterator for SliceIter<a, T> {
+    type Item = &a T
+    func next(&mut self) -> Option<&a T> {
         if self.i < sliceLen(self.s) {
             let x = &self.s[self.i]
             self.i += 1
@@ -109,8 +109,8 @@ implement<a, T, const N: uint> IntoIterator for &a [T; N] {
     func intoIter(self) -> SliceIter<a, T> { SliceIter { s: self, i: 0 } }
 }
 
-implement<a: Origin, T> IntoIterator for &[a] [T] {
-    type Item = &[a] T
+implement<a, T> IntoIterator for &a [T] {
+    type Item = &a T
     type IntoIter = SliceIter<a, T>
     func intoIter(self) -> SliceIter<a, T> { SliceIter { s: self, i: 0 } }
 }

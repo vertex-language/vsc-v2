@@ -33,7 +33,7 @@ use std::mem;
 use vsc_ast::{self as ast, DUMMY_NODE_ID, NodeId};
 use vsc_data_structures::FxHashMap;
 use vsc_errors::{DiagCtxt, ErrCode};
-use vsc_hir::def::{DefKind, OriginRes, Res};
+use vsc_hir::def::{DefKind, LifetimeRes, Res};
 use vsc_hir::{self as hir, HirId, HirRes, ItemLocalId};
 use vsc_index::{Idx, IndexVec};
 use vsc_resolve::ResolverOutputs;
@@ -208,46 +208,37 @@ impl<'a> LoweringContext<'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Origins (exception 13)
+    // Lifetimes (exception 13)
     // -----------------------------------------------------------------------
 
-    pub(crate) fn lower_origin_ref(&mut self, o: Option<&ast::OriginRef>, elided_span: Span) -> hir::Origin {
+    pub(crate) fn lower_lifetime_ref(&mut self, o: Option<&ast::Lifetime>, elided_span: Span) -> hir::Lifetime {
         match o {
-            None => hir::Origin { hir_id: self.next_id(), span: elided_span, kind: hir::OriginKind::Elided },
+            None => hir::Lifetime { hir_id: self.next_id(), span: elided_span, kind: hir::LifetimeKind::Elided },
             Some(o) => {
-                let names = o.origins.iter().map(|&ident| (ident, self.origin_res(ident))).collect();
-                hir::Origin { hir_id: self.next_id(), span: o.span, kind: hir::OriginKind::Named(names) }
+                let res = self.lifetime_res(o.ident);
+                hir::Lifetime { hir_id: self.next_id(), span: o.span(), kind: hir::LifetimeKind::Named(o.ident, res) }
             }
         }
     }
 
-    pub(crate) fn origin_res(&mut self, ident: Ident) -> OriginRes<HirId> {
-        let res = self.resolver.origin_res_map.get(&ident.span).copied().unwrap_or(OriginRes::Err);
-        res.map_id(|id| self.lower_node_id(id))
+    pub(crate) fn lifetime_res(&self, ident: Ident) -> LifetimeRes {
+        self.resolver.lifetime_res_map.get(&ident.span).copied().unwrap_or(LifetimeRes::Err)
     }
 
-    /// One named origin: a generic argument or bound that turned out to be
-    /// an origin.
-    pub(crate) fn origin_from_ident(&mut self, ident: Ident, span: Span) -> hir::Origin {
-        let res = self.origin_res(ident);
-        hir::Origin { hir_id: self.next_id(), span, kind: hir::OriginKind::Named(vec![(ident, res)]) }
+    /// One named lifetime: a generic argument or bound that turned out to be
+    /// a lifetime.
+    pub(crate) fn lifetime_from_ident(&mut self, ident: Ident, span: Span) -> hir::Lifetime {
+        let res = self.lifetime_res(ident);
+        hir::Lifetime { hir_id: self.next_id(), span, kind: hir::LifetimeKind::Named(ident, res) }
     }
 
     /// A generic argument written as a type that name resolution found to be
-    /// an origin: `src` in `Highlight<src>`, `[doc]` in `Lines<[doc]>`.
-    fn generic_arg_origin(&self, ty: &ast::Ty) -> Option<Ident> {
-        let ident = match &ty.kind {
-            ast::TyKind::Path(None, p) => p.as_ident(),
-            ast::TyKind::Slice(inner) => match &inner.kind {
-                ast::TyKind::Path(None, p) => p.as_ident(),
-                _ => None,
-            },
-            _ => None,
-        }?;
-        let is_origin = self.resolver.origin_res_map.contains_key(&ident.span)
-            && !self.resolver.partial_res_map.contains_key(&ty.id)
-            && !matches!(&ty.kind, ast::TyKind::Slice(inner) if self.resolver.partial_res_map.contains_key(&inner.id));
-        is_origin.then_some(ident)
+    /// a lifetime: `src` in `Highlight<src>`.
+    fn generic_arg_lifetime(&self, ty: &ast::Ty) -> Option<Ident> {
+        let ast::TyKind::Path(None, p) = &ty.kind else { return None };
+        let ident = p.as_ident()?;
+        let is_lifetime = self.resolver.lifetime_res_map.contains_key(&ident.span) && !self.resolver.partial_res_map.contains_key(&ty.id);
+        is_lifetime.then_some(ident)
     }
 
     // -----------------------------------------------------------------------
@@ -261,9 +252,9 @@ impl<'a> LoweringContext<'a> {
             T::Slice(inner) => hir::TyKind::Slice(Box::new(self.lower_ty(inner))),
             T::Array(inner, len) => hir::TyKind::Array(Box::new(self.lower_ty(inner)), self.lower_anon_const(len)),
             T::Ptr(mt) => hir::TyKind::Ptr(self.lower_mt(mt)),
-            T::Ref(origin, mt) => {
-                let origin = self.lower_origin_ref(origin.as_ref(), t.span.shrink_to_lo());
-                hir::TyKind::Ref(origin, self.lower_mt(mt))
+            T::Ref(lifetime, mt) => {
+                let lifetime = self.lower_lifetime_ref(lifetime.as_ref(), t.span.shrink_to_lo());
+                hir::TyKind::Ref(lifetime, self.lower_mt(mt))
             }
             T::FnPtr(f) => {
                 let generic_params = self.lower_generic_params(&f.generic_params);
@@ -281,29 +272,29 @@ impl<'a> LoweringContext<'a> {
                     safety: f.safety,
                     abi: lower_abi(f.ext),
                     generic_params,
-                    decl: self.lower_fn_decl(&f.decl, false),
+                    decl: self.lower_fn_decl(&f.decl),
                     param_idents,
                 }))
             }
             T::FuncValue(f) => {
                 let generic_params = self.lower_generic_params(&f.generic_params);
-                hir::TyKind::FuncValue(Box::new(hir::FuncValueTy { generic_params, decl: self.lower_fn_decl(&f.decl, false) }))
+                hir::TyKind::FuncValue(Box::new(hir::FuncValueTy { generic_params, decl: self.lower_fn_decl(&f.decl) }))
             }
             T::Never => hir::TyKind::Never,
             T::Tup(tys) => hir::TyKind::Tup(tys.iter().map(|t| self.lower_ty(t)).collect()),
             T::Path(qself, path) => hir::TyKind::Path(self.lower_qpath_ty(t.id, qself, path, "type")),
             T::TraitObject(bounds) => {
-                let mut origin = None;
+                let mut lifetime = None;
                 let mut traits = Vec::new();
                 for b in bounds {
                     match b {
                         ast::GenericBound::Trait(p) => traits.push(self.lower_poly_trait_ref(p)),
-                        ast::GenericBound::Outlives(o) if origin.is_none() => {
-                            origin = Some(self.lower_origin_ref(Some(o), o.span))
+                        ast::GenericBound::Outlives(o) if lifetime.is_none() => {
+                            lifetime = Some(self.lower_lifetime_ref(Some(o), o.span()))
                         }
                         ast::GenericBound::Outlives(o) => {
                             self.dcx()
-                                .struct_span_err(o.span, "only a single explicit origin bound is permitted")
+                                .struct_span_err(o.span(), "only a single explicit lifetime bound is permitted")
                                 .with_code(ErrCode(226))
                                 .emit();
                         }
@@ -312,7 +303,7 @@ impl<'a> LoweringContext<'a> {
                         }
                     }
                 }
-                hir::TyKind::TraitObject(traits, origin)
+                hir::TyKind::TraitObject(traits, lifetime)
             }
             T::ImplTrait(_, bounds) => hir::TyKind::OpaqueDef(self.lower_bounds(bounds)),
             T::Infer => hir::TyKind::Infer,
@@ -361,21 +352,14 @@ impl<'a> LoweringContext<'a> {
     // -----------------------------------------------------------------------
 
     /// The declaration of a function, method, function literal or function
-    /// type. `has_body_params` is false for function types, whose parameter
-    /// names aren't bindings.
-    pub(crate) fn lower_fn_decl(&mut self, decl: &ast::FnDecl, has_body_params: bool) -> hir::FnDecl {
+    /// type.
+    pub(crate) fn lower_fn_decl(&mut self, decl: &ast::FnDecl) -> hir::FnDecl {
         let c_variadic = decl.c_variadic();
         let mut inputs = Vec::with_capacity(decl.inputs.len());
-        let mut param_bindings = Vec::with_capacity(decl.inputs.len());
         for p in &decl.inputs {
             if matches!(p.ty.kind, ast::TyKind::CVarArgs) {
                 continue;
             }
-            let binding = match p.pat.kind {
-                ast::PatKind::Ident(_, _, None) if has_body_params => Some(self.lower_node_id(p.pat.id)),
-                _ => None,
-            };
-            param_bindings.push(binding);
             inputs.push(self.lower_ty(&p.ty));
         }
         let output = match &decl.output {
@@ -400,7 +384,7 @@ impl<'a> LoweringContext<'a> {
             }
             _ => hir::ImplicitSelfKind::None,
         };
-        hir::FnDecl { inputs, param_bindings, output, c_variadic, implicit_self }
+        hir::FnDecl { inputs, output, c_variadic, implicit_self }
     }
 
     pub(crate) fn lower_fn_header(&self, h: &ast::FnHeader) -> hir::FnHeader {
@@ -449,7 +433,7 @@ impl<'a> LoweringContext<'a> {
             let data = &self.resolver.defs[def];
             let (name, span, kind) = (data.name.unwrap_or(kw::Empty), data.span, data.kind);
             let kind = match kind {
-                DefKind::OriginParam => hir::GenericParamKind::Origin,
+                DefKind::LifetimeParam => hir::GenericParamKind::Lifetime,
                 DefKind::ConstParam => hir::GenericParamKind::Const { ty: self.ty_err(span), default: None },
                 _ => hir::GenericParamKind::Type { default: None },
             };
@@ -470,14 +454,14 @@ impl<'a> LoweringContext<'a> {
             }
             let def = self.local_def_id(p.id);
             match p.kind {
-                ast::GenericParamKind::Origin => {
-                    let origin = hir::Origin {
+                ast::GenericParamKind::Lifetime => {
+                    let lifetime = hir::Lifetime {
                         hir_id: self.next_id(),
                         span: p.ident.span,
-                        kind: hir::OriginKind::Named(vec![(p.ident, OriginRes::Param(def.to_def_id()))]),
+                        kind: hir::LifetimeKind::Named(p.ident, LifetimeRes::Param(def.to_def_id())),
                     };
                     let bounds = self.lower_outlives_bounds(&p.bounds);
-                    predicates.push(hir::WherePredicate::Origin { span: p.span, origin, bounds });
+                    predicates.push(hir::WherePredicate::Lifetime { span: p.span, lifetime, bounds });
                 }
                 _ => {
                     let res = Res::Def(self.resolver.defs[def].kind, def.to_def_id());
@@ -506,7 +490,7 @@ impl<'a> LoweringContext<'a> {
         let hir_id = self.lower_node_id(p.id);
         self.lower_attrs(hir_id, &p.attrs);
         let kind = match &p.kind {
-            ast::GenericParamKind::Origin => hir::GenericParamKind::Origin,
+            ast::GenericParamKind::Lifetime => hir::GenericParamKind::Lifetime,
             ast::GenericParamKind::Type { default } => {
                 hir::GenericParamKind::Type { default: default.as_ref().map(|t| self.lower_ty(t)) }
             }
@@ -527,15 +511,15 @@ impl<'a> LoweringContext<'a> {
 
     fn lower_where_predicate(&mut self, pred: &ast::WherePredicate) -> hir::WherePredicate {
         let ast::WherePredicateKind::BoundPredicate { bound_generic_params, bounded_ty, bounds } = &pred.kind;
-        // `a: [b]`: name resolution found `a` to be an origin.
+        // `a: [b]`: name resolution found `a` to be a lifetime.
         if let ast::TyKind::Path(None, p) = &bounded_ty.kind {
             if let Some(ident) = p.as_ident() {
-                if self.resolver.origin_res_map.contains_key(&ident.span)
+                if self.resolver.lifetime_res_map.contains_key(&ident.span)
                     && !self.resolver.partial_res_map.contains_key(&bounded_ty.id)
                 {
-                    let origin = self.origin_from_ident(ident, ident.span);
+                    let lifetime = self.lifetime_from_ident(ident, ident.span);
                     let bounds = self.lower_outlives_bounds(bounds);
-                    return hir::WherePredicate::Origin { span: pred.span, origin, bounds };
+                    return hir::WherePredicate::Lifetime { span: pred.span, lifetime, bounds };
                 }
             }
         }
@@ -548,20 +532,16 @@ impl<'a> LoweringContext<'a> {
         }
     }
 
-    /// The bounds of an origin: only other origins (`a: [b] + [c]`).
-    fn lower_outlives_bounds(&mut self, bounds: &[ast::GenericBound]) -> Vec<hir::Origin> {
+    /// The bounds of a lifetime: only other lifetimes (`a: b + c`).
+    fn lower_outlives_bounds(&mut self, bounds: &[ast::GenericBound]) -> Vec<hir::Lifetime> {
         let mut out = Vec::new();
         for b in bounds {
             match b {
-                ast::GenericBound::Outlives(o) => {
-                    for &ident in &o.origins {
-                        out.push(self.origin_from_ident(ident, o.span));
-                    }
-                }
+                ast::GenericBound::Outlives(o) => out.push(self.lifetime_from_ident(o.ident, o.span())),
                 other => {
                     self.dcx()
-                        .struct_span_err(other.span(), "an origin can only be bounded by other origins")
-                        .with_span_label(other.span(), "not an origin")
+                        .struct_span_err(other.span(), "a lifetime can only be bounded by other lifetimes")
+                        .with_span_label(other.span(), "not a lifetime")
                         .emit();
                 }
             }
@@ -574,7 +554,7 @@ impl<'a> LoweringContext<'a> {
             .iter()
             .map(|b| match b {
                 ast::GenericBound::Trait(p) => hir::GenericBound::Trait(self.lower_poly_trait_ref(p)),
-                ast::GenericBound::Outlives(o) => hir::GenericBound::Outlives(self.lower_origin_ref(Some(o), o.span)),
+                ast::GenericBound::Outlives(o) => hir::GenericBound::Outlives(self.lower_lifetime_ref(Some(o), o.span())),
                 ast::GenericBound::Use(args, span) => hir::GenericBound::Use(args.clone(), *span),
             })
             .collect()
@@ -652,10 +632,10 @@ impl<'a> LoweringContext<'a> {
 
     fn lower_generic_arg(&mut self, arg: &ast::GenericArg) -> hir::GenericArg {
         match arg {
-            ast::GenericArg::Origin(o) => hir::GenericArg::Origin(self.lower_origin_ref(Some(o), o.span)),
+            ast::GenericArg::Lifetime(o) => hir::GenericArg::Lifetime(self.lower_lifetime_ref(Some(o), o.span())),
             ast::GenericArg::Type(t) => {
-                if let Some(ident) = self.generic_arg_origin(t) {
-                    return hir::GenericArg::Origin(self.origin_from_ident(ident, t.span));
+                if let Some(ident) = self.generic_arg_lifetime(t) {
+                    return hir::GenericArg::Lifetime(self.lifetime_from_ident(ident, t.span));
                 }
                 // A name that resolved to a value is a const argument.
                 if let ast::TyKind::Path(None, p) = &t.kind {

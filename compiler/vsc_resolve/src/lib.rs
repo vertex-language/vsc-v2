@@ -9,7 +9,7 @@
 //! Exception 7 is handled in `late`: a path `a.b.c` resolves as far as it
 //! names packages, enums and traits; whatever is left (fields, methods,
 //! associated items) is recorded as unresolved segments of a `PartialRes`.
-//! Exception 13 is handled there too: `[a]` names an origin parameter or a
+//! Exception 13 is handled there too: `[a]` names a lifetime parameter or a
 //! function parameter.
 
 mod build_reduced_graph;
@@ -25,7 +25,7 @@ mod tests;
 
 use vsc_ast::{Crate, NodeId};
 use vsc_data_structures::{FxHashMap, FxHashSet, FxIndexMap};
-use vsc_hir::def::{DefKind, Namespace, OriginRes, PartialRes, Res};
+use vsc_hir::def::{DefKind, Namespace, LifetimeRes, PartialRes, Res};
 use vsc_index::IndexVec;
 use vsc_session::ParseSess;
 use vsc_span::def_id::{CRATE_DEF_ID, LocalDefId};
@@ -85,10 +85,10 @@ pub struct ResolverOutputs {
     /// For every resolved path: keyed by the id of the expression, type or
     /// pattern holding it.
     pub partial_res_map: FxHashMap<NodeId, PartialRes>,
-    /// For every origin name (`a` in `&[a] T`), keyed by its span. This also
-    /// covers generic arguments that turned out to be origins (`Lines<[doc]>`,
+    /// For every lifetime name (`a` in `&[a] T`), keyed by its span. This also
+    /// covers generic arguments that turned out to be lifetimes (`Lines<[doc]>`,
     /// `Highlight<src>`).
-    pub origin_res_map: FxHashMap<Span, OriginRes>,
+    pub lifetime_res_map: FxHashMap<Span, LifetimeRes>,
     /// `break`/`continue` expression → the loop or block its label names.
     pub label_res_map: FxHashMap<NodeId, NodeId>,
     /// A flat receiver impl → the parameters its receiver type introduces
@@ -110,7 +110,7 @@ pub(crate) struct Resolver<'a> {
     generics_of: FxHashMap<LocalDefId, Vec<(Symbol, DefKind)>>,
     visibilities: FxHashMap<LocalDefId, Visibility>,
     partial_res_map: FxHashMap<NodeId, PartialRes>,
-    origin_res_map: FxHashMap<Span, OriginRes>,
+    lifetime_res_map: FxHashMap<Span, LifetimeRes>,
     label_res_map: FxHashMap<NodeId, NodeId>,
     flat_receiver_params: FxHashMap<NodeId, Vec<LocalDefId>>,
     /// Crates already reported as missing, to report each once.
@@ -129,7 +129,7 @@ impl<'a> Resolver<'a> {
             generics_of: FxHashMap::default(),
             visibilities: FxHashMap::default(),
             partial_res_map: FxHashMap::default(),
-            origin_res_map: FxHashMap::default(),
+            lifetime_res_map: FxHashMap::default(),
             label_res_map: FxHashMap::default(),
             flat_receiver_params: FxHashMap::default(),
             missing_crates: FxHashSet::default(),
@@ -192,7 +192,7 @@ pub fn resolve_crate(psess: &ParseSess, krate: &Crate) -> ResolverOutputs {
         defs: r.defs,
         node_id_to_def_id: r.node_id_to_def_id,
         partial_res_map: r.partial_res_map,
-        origin_res_map: r.origin_res_map,
+        lifetime_res_map: r.lifetime_res_map,
         label_res_map: r.label_res_map,
         flat_receiver_params: r.flat_receiver_params,
         visibilities: r.visibilities,

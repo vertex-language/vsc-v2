@@ -111,20 +111,8 @@ fn exception_3_class_uses_are_wrapped() {
 }
 
 #[test]
-fn exception_13_several_origins_make_a_joined_region() {
-    with_tcx("func longest(a: &int64, b: &int64) -> &[a, b] int64 { a }", |tcx, diags| {
-        assert_eq!(diags(), "");
-        let sig = tcx.fn_sig(def_named(tcx, "longest"));
-        assert_eq!(sig.bound_vars.len(), 3);
-        assert_eq!(sig.bound_vars[2].outlived_by, &[0, 1]);
-        let TyKind::Ref(r, ..) = *sig.skip_binder().output().kind() else { panic!() };
-        assert_eq!(*r.kind(), RegionKind::ReBound(DebruijnIndex(0), BoundRegion { var: 2 }));
-    });
-}
-
-#[test]
 fn exception_13_elision_and_naming_share_the_input_region() {
-    with_tcx("func first(a: &int64) -> &int64 { a }\nfunc named(x: &int64, y: &int64) -> &[y] int64 { y }", |tcx, diags| {
+    with_tcx("func first(a: &int64) -> &int64 { a }\nfunc named<y>(x: &int64, y: &y int64) -> &y int64 { y }", |tcx, diags| {
         assert_eq!(diags(), "");
         for (name, input) in [("first", 0), ("named", 1)] {
             let sig = tcx.fn_sig(def_named(tcx, name)).skip_binder();
@@ -137,20 +125,6 @@ fn exception_13_elision_and_naming_share_the_input_region() {
             assert_eq!(region(sig.output()), region(sig.inputs()[input]), "{name}");
         }
         assert_eq!(tcx.fn_sig_to_string(tcx.fn_sig(def_named(tcx, "named"))), "func(&int64, &y int64) -> &y int64");
-    });
-}
-
-#[test]
-fn exception_13_regions_shift_inside_function_types() {
-    let src = format!("{PRELUDE}\nfunc g(a: &int64, f: func(&[a] int64)) {{}}");
-    with_tcx(&src, |tcx, diags| {
-        assert_eq!(diags(), "");
-        let sig = tcx.fn_sig(def_named(tcx, "g")).skip_binder();
-        let TyKind::Adt(_, args) = *sig.inputs()[1].kind() else { panic!() };
-        let TyKind::FnPtr(inner) = *args[0].expect_ty().kind() else { panic!() };
-        let TyKind::Ref(r, ..) = *inner.skip_binder().inputs()[0].kind() else { panic!() };
-        // One binder out: the outer signature's variable 0.
-        assert_eq!(*r.kind(), RegionKind::ReBound(DebruijnIndex(1), BoundRegion { var: 0 }));
     });
 }
 

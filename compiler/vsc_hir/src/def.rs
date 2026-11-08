@@ -79,8 +79,8 @@ pub enum DefKind {
     /// `type FILE` in an extern block.
     ForeignTy,
     TyParam,
-    /// An origin parameter, `src: Origin` (exception 13; Rust's lifetime parameter).
-    OriginParam,
+    /// A lifetime parameter, `src` in `<src>` (exception 13).
+    LifetimeParam,
     AssocTy,
 
     // Value namespace.
@@ -116,7 +116,7 @@ impl DefKind {
             DefKind::TyAlias => "type alias",
             DefKind::ForeignTy => "foreign type",
             DefKind::TyParam => "type parameter",
-            DefKind::OriginParam => "origin parameter",
+            DefKind::LifetimeParam => "lifetime parameter",
             DefKind::AssocTy => "associated type",
             DefKind::Fn => "function",
             DefKind::Const => "constant",
@@ -151,7 +151,7 @@ impl DefKind {
             | DefKind::TyAlias
             | DefKind::ForeignTy
             | DefKind::TyParam
-            | DefKind::OriginParam
+            | DefKind::LifetimeParam
             | DefKind::AssocTy => Some(Namespace::TypeNS),
             DefKind::Fn
             | DefKind::Const
@@ -378,30 +378,15 @@ impl PartialRes {
     }
 }
 
-/// What an origin (`[a]`, exception 13) names.
+/// What a lifetime names (exception 13).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum OriginRes<Id = NodeId> {
-    /// An origin parameter: `src` in `struct S<src: Origin>`.
+pub enum LifetimeRes {
+    /// A lifetime parameter: `src` in `struct S<src>`.
     Param(DefId),
-    /// A function parameter: `a` in `func f(a: &string) -> &[a] string`. The
-    /// id is the parameter's binding.
-    FnParam(Id),
-    /// `[static]`
+    /// `static`
     Static,
     /// Resolution failed and was reported.
     Err,
-}
-
-impl<Id> OriginRes<Id> {
-    /// The same resolution with parameters' ids converted.
-    pub fn map_id<R>(self, f: impl FnOnce(Id) -> R) -> OriginRes<R> {
-        match self {
-            OriginRes::Param(d) => OriginRes::Param(d),
-            OriginRes::FnParam(id) => OriginRes::FnParam(f(id)),
-            OriginRes::Static => OriginRes::Static,
-            OriginRes::Err => OriginRes::Err,
-        }
-    }
 }
 
 impl fmt::Display for PrimTy {

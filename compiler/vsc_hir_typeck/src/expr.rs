@@ -308,7 +308,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                             let what = if lit.kind == LitKind::Float { "float" } else { "number" };
                             self.err(span, format!("invalid suffix `{suffix}` for {what} literal"))
                                 .with_span_label(span, format!("invalid suffix `{suffix}`"))
-                                .with_help("the suffix must be one of the numeric types (`uint32`, `int64`, `float32`, ...; Rust's `u32` spellings work too)")
+                                .with_help("the suffix must be one of the numeric types (`u32`, `isize`, `f32`, etc.)")
                                 .emit();
                             tcx.types.error
                         }
@@ -368,7 +368,13 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         let tcx = self.tcx;
         match q {
             hir::QPath::Resolved(None, path) => {
-                let seg_args = path.segments.last().and_then(|s| s.args.as_deref());
+                let mut seg_args = path.segments.last().and_then(|s| s.args.as_deref());
+                // A variant's arguments may also go on its enum, as in Rust:
+                // `Option<int32>.None`.
+                if seg_args.is_none() && matches!(path.res, Res::Def(DefKind::Ctor(vsc_hir::def::CtorOf::Variant, _), _)) {
+                    let n = path.segments.len();
+                    seg_args = n.checked_sub(2).and_then(|i| path.segments[i].args.as_deref());
+                }
                 self.value_path(path.res, seg_args, id, span)
             }
             hir::QPath::Resolved(Some(qself), path) => {
@@ -430,7 +436,17 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                 tcx.mk_fn_def(def, args)
             }
             Res::Def(kind @ DefKind::Ctor(..), ctor) => {
-                let args = self.infcx.fresh_args_for_item(ctor);
+                let fresh = self.infcx.fresh_args_for_item(ctor);
+                // Explicit arguments are the type's: `Pair<int64>(1, 2)`.
+                let args = match explicit {
+                    Some(explicit) => {
+                        let parent = tcx.parent(ctor);
+                        let adt = if tcx.def_kind(parent) == DefKind::Variant { tcx.parent(parent) } else { parent };
+                        let own = self.lower_own_args(adt, explicit, span);
+                        if own.len() == fresh.len() { own } else { fresh }
+                    }
+                    None => fresh,
+                };
                 self.write_args(id, args);
                 self.item_value_ty(kind, ctor, args, span)
             }
@@ -585,8 +601,37 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
             }
             _ => return self.check_overloaded_call(e, callee, t, derefs, args),
         };
+        if sig.inputs().len() == args.len() + 1 && self.report_unit_struct_method(callee, t) {
+            for (a, &ty) in args.iter().zip(&sig.inputs()[1..]) {
+                self.check_expr_coercible_to_type(a, ty);
+            }
+            return sig.output();
+        }
         self.check_args(e.span, &sig, sig.inputs(), args, "function");
         sig.output()
+    }
+
+    /// `Marker.hello()` where `Marker` is a unit struct and `hello` takes
+    /// `self`: the path names the method on the type (exception 7, as in Go
+    /// and Swift), so the receiver is missing. Parentheses make `Marker` the
+    /// value.
+    fn report_unit_struct_method(&self, callee: &hir::Expr, t: Ty<'tcx>) -> bool {
+        let tcx = self.tcx;
+        let hir::ExprKind::Path(hir::QPath::TypeRelative(base, seg)) = &callee.kind else { return false };
+        let TyKind::FnDef(def, _) = *t.kind() else { return false };
+        let Some(parent) = tcx.opt_parent(def) else { return false };
+        let is_method = tcx.associated_items(parent).iter().any(|i| i.def_id == def && matches!(i.kind, AssocKind::Fn { has_self: true }));
+        let unit_struct = match *self.lower_ty(base).kind() {
+            TyKind::Adt(adt, _) => !adt.is_enum() && matches!(adt.non_enum_variant().ctor, Some((CtorKind::Const, _))),
+            _ => false,
+        };
+        if is_method && unit_struct {
+            self.err(callee.span, format!("`{}` is a method, so `{}` needs a value to call it on", seg.ident, tcx.ty_to_string(self.lower_ty(base))))
+                .with_code(ErrCode(61))
+                .with_help(format!("`{}` names the method on the type; to call it on the unit value, write `({}).{}(…)`", callee_text(base, seg), ty_text(base), seg.ident))
+                .emit();
+        }
+        is_method && unit_struct
     }
 
     /// `f(x)` where `f` isn't a function but implements one of the function
@@ -1316,28 +1361,41 @@ fn is_place(e: &hir::Expr) -> bool {
     }
 }
 
-/// The type a numeric literal's suffix names: Rust's (`u8`) or Vertex's
-/// (`uint8`) spelling.
+/// The type a numeric literal's suffix names. Suffixes are Rust's (`1u8`,
+/// `2.5f32`), as the grammar keeps them.
 fn suffix_ty<'tcx>(tcx: TyCtxt<'tcx>, s: &str, is_float: bool) -> Option<Ty<'tcx>> {
     use vsc_hir::def::FloatTy;
     let kind = match s {
-        "f32" | "float32" => TyKind::Float(FloatTy::F32),
-        "f64" | "float64" => TyKind::Float(FloatTy::F64),
+        "f32" => TyKind::Float(FloatTy::F32),
+        "f64" => TyKind::Float(FloatTy::F64),
         _ if is_float => return None,
-        "i8" | "int8" => TyKind::Int(IntTy::I8),
-        "i16" | "int16" => TyKind::Int(IntTy::I16),
-        "i32" | "int32" => TyKind::Int(IntTy::I32),
-        "i64" | "int64" => TyKind::Int(IntTy::I64),
-        "i128" | "int128" => TyKind::Int(IntTy::I128),
-        "isize" | "int" => TyKind::Int(IntTy::Isize),
-        "u8" | "uint8" => TyKind::Uint(UintTy::U8),
-        "u16" | "uint16" => TyKind::Uint(UintTy::U16),
-        "u32" | "uint32" => TyKind::Uint(UintTy::U32),
-        "u64" | "uint64" => TyKind::Uint(UintTy::U64),
-        "u128" | "uint128" => TyKind::Uint(UintTy::U128),
-        "usize" | "uint" => TyKind::Uint(UintTy::Usize),
+        "i8" => TyKind::Int(IntTy::I8),
+        "i16" => TyKind::Int(IntTy::I16),
+        "i32" => TyKind::Int(IntTy::I32),
+        "i64" => TyKind::Int(IntTy::I64),
+        "i128" => TyKind::Int(IntTy::I128),
+        "isize" => TyKind::Int(IntTy::Isize),
+        "u8" => TyKind::Uint(UintTy::U8),
+        "u16" => TyKind::Uint(UintTy::U16),
+        "u32" => TyKind::Uint(UintTy::U32),
+        "u64" => TyKind::Uint(UintTy::U64),
+        "u128" => TyKind::Uint(UintTy::U128),
+        "usize" => TyKind::Uint(UintTy::Usize),
         _ => return None,
     };
     Some(tcx.mk_ty(kind))
 }
 
+
+/// `Marker.hello`, for diagnostics.
+fn callee_text(base: &hir::Ty, seg: &hir::PathSegment) -> String {
+    format!("{}.{}", ty_text(base), seg.ident)
+}
+
+/// The name a type path was written with.
+fn ty_text(t: &hir::Ty) -> String {
+    match &t.kind {
+        hir::TyKind::Path(hir::QPath::Resolved(None, p)) => p.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("."),
+        _ => "…".to_string(),
+    }
+}

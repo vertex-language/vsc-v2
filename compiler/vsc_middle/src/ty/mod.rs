@@ -10,7 +10,7 @@
 //!   `cstring` and `&cstring` likewise. `hir_ty_lowering` decides.
 //! - Exception 3: a use of a `class` type is the `Class<T>` lang item
 //!   around the class's own struct type.
-//! - Exception 13: origins are regions. `[a, b]` is a region outlived by
+//! - Exception 13: lifetimes are regions. `[a, b]` is a region outlived by
 //!   both, recorded on the function signature's binder (`BoundVar`).
 //! - Exception 14: `func(T) -> U` is the `Func` lang item applied to the
 //!   signature as a function pointer type.
@@ -72,7 +72,7 @@ macro_rules! interned {
 interned!(Ty, TyKind);
 interned!(Const, ConstKind);
 
-/// A region (Rust's lifetime; Vertex's origin, exception 13).
+/// A region: what a lifetime names.
 #[derive(Clone, Copy)]
 pub struct Region<'tcx>(pub(crate) &'tcx RegionKind);
 
@@ -170,7 +170,7 @@ impl<'tcx> AliasTy<'tcx> {
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum RegionKind {
-    /// An origin parameter of an item, `src: Origin`.
+    /// A lifetime parameter of an item, `src: Lifetime`.
     ReEarlyParam(EarlyParamRegion),
     /// A region bound by a function signature's binder: an elided input
     /// reference, or `[a, b]`.
@@ -204,13 +204,10 @@ pub struct BoundRegion {
 
 /// A variable bound by a `Binder`.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct BoundVar<'tcx> {
-    /// The parameter an origin named it by (`[a]`), for printing; `Empty`
-    /// if it was only elided.
+pub struct BoundVar {
+    /// The lifetime's name (`a` in `for<a>`), for printing; `Empty` if it
+    /// was only elided.
     pub name: Symbol,
-    /// Exception 13's `[a, b]`: the variables (by index) that outlive this
-    /// one. Empty for ordinary regions.
-    pub outlived_by: &'tcx [u32],
 }
 
 /// A value with bound regions: a function signature, whose elided input
@@ -218,7 +215,7 @@ pub struct BoundVar<'tcx> {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Binder<'tcx, T> {
     pub value: T,
-    pub bound_vars: &'tcx [BoundVar<'tcx>],
+    pub bound_vars: &'tcx [BoundVar],
 }
 
 impl<'tcx, T> Binder<'tcx, T> {

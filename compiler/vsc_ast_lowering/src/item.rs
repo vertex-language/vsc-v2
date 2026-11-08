@@ -163,7 +163,7 @@ impl LoweringContext<'_> {
     }
 
     fn lower_fn_sig(&mut self, sig: &ast::FnSig) -> hir::FnSig {
-        hir::FnSig { header: self.lower_fn_header(&sig.header), decl: self.lower_fn_decl(&sig.decl, true), span: sig.span }
+        hir::FnSig { header: self.lower_fn_header(&sig.header), decl: self.lower_fn_decl(&sig.decl), span: sig.span }
     }
 
     /// A constant's or static's value. A missing one was reported by the

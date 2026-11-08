@@ -275,11 +275,11 @@ fn rust_spellings_are_reported() {
 }
 
 // ---------------------------------------------------------------------------
-// Types, origins (exception 13) and function types (exception 14)
+// Types, lifetimes (exception 13) and function types (exception 14)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn origins_and_slices() {
+fn lifetimes_and_slices() {
     assert_prints(
         "func longest<a>(a: &a string, b: &a string) -> &a string { a }\nfunc part(v: &[uint8]) -> &static string { \"x\" }\n",
         "func longest<a>(a: &a string, b: &a string) -> &a string {\n    a\n}\n\nfunc part(v: &[uint8]) -> &static string {\n    \"x\"\n}\n",
@@ -405,7 +405,7 @@ fn inline_asm() {
 
 #[test]
 fn turbofish_is_reported() {
-    assert_error("func f() { let n = s.Parse::<int64>() }\n", "Vertex has no turbofish");
+    assert_error("func f() { let n = s.parse::<int64>() }\n", "generic arguments in an expression have no `::` in Vertex");
 }
 
 #[test]
