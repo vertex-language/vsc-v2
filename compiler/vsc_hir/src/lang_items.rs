@@ -51,6 +51,12 @@ lang_items! {
     RangeInclusiveNew: "rangeInclusiveNew", "method";
     RangeToInclusive: "RangeToInclusive", "struct";
 
+    // Calls of values that aren't functions: closures, and parameters
+    // bounded by the function traits.
+    FnOnce: "fnOnce", "trait";
+    FnMut: "fnMut", "trait";
+    Fn: "fn", "trait";
+
     // Exception 2, 3 and 14 types.
     String: "String", "struct";
     CString: "CString", "struct";

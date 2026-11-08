@@ -132,6 +132,29 @@ impl<'a, 'tcx> Interpreter<'a, 'tcx> {
                     self.option(None)
                 }
             }
+            "range_inclusive_next" => {
+                // `RangeInclusive { start, end, exhausted }`: yields `start`
+                // until it passes `end`; `exhausted` marks that `end` was
+                // yielded, as in Rust, so `0..=MAX` ends without overflow.
+                let loc = self.deref_value(&vals[0])?;
+                let Value::Adt { fields, .. } = self.read(&loc)? else { return self.ub("`next` of a value that isn't a range") };
+                let (Value::Int(start), Value::Int(end), Value::Bool(exhausted)) = (&fields[0], &fields[1], &fields[2]) else {
+                    return self.unsupported("iterating a range of a type other than an integer");
+                };
+                if *exhausted || start.to_i128() > end.to_i128() {
+                    self.option(None)
+                } else {
+                    let (field, value) = if start.to_i128() < end.to_i128() {
+                        (0, Value::Int(Int::from_bits(start.bits.wrapping_add(1), start.size, start.signed)))
+                    } else {
+                        (2, Value::Bool(true))
+                    };
+                    let mut field_loc = loc.clone();
+                    field_loc.path.push(field);
+                    self.write(&field_loc, value)?;
+                    self.option(Some(Value::Int(*start)))
+                }
+            }
             other => {
                 let _ = ty_arg;
                 return self.unsupported(format!("the intrinsic `{other}`"));

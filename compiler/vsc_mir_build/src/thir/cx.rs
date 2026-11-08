@@ -163,10 +163,21 @@ impl<'tcx> Cx<'tcx> {
                         let fields = args_fields(self.mirror_exprs(args));
                         ExprKind::Adt(Box::new(AdtExpr { adt_def, variant_index, args: generic_args, fields, base: None }))
                     }
-                    None => {
-                        let fun = self.mirror_expr(callee);
-                        ExprKind::Call { fun, args: self.mirror_exprs(args), fn_span: e.span }
-                    }
+                    None => match (self.results.type_dependent_defs.get(&e.hir_id), self.results.node_args.get(&e.hir_id)) {
+                        // `f(x)` through a function trait: `Fn.call(&f, (x,))`.
+                        (Some(&(_, method)), Some(&call_args)) => {
+                            let fun = self.push(ExprKind::ZstLiteral, tcx.mk_fn_def(method, call_args), callee.span);
+                            let recv = self.mirror_expr(callee);
+                            let fields = self.mirror_exprs(args);
+                            let tuple_ty = call_args[1].expect_ty();
+                            let tuple = self.push(ExprKind::Tuple { fields }, tuple_ty, e.span);
+                            ExprKind::Call { fun, args: vec![recv, tuple], fn_span: e.span }
+                        }
+                        _ => {
+                            let fun = self.mirror_expr(callee);
+                            ExprKind::Call { fun, args: self.mirror_exprs(args), fn_span: e.span }
+                        }
+                    },
                 }
             }
             hir::ExprKind::MethodCall(_, recv, args, span) => {

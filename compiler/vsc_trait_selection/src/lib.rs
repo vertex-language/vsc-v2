@@ -37,7 +37,43 @@ impl<'tcx> ParamEnv<'tcx> {
             clauses.extend(p.predicates.iter().map(|(c, _)| tcx.erase_regions_clause(*c)));
             d = p.parent;
         }
+        elaborate(tcx, &mut clauses);
         ParamEnv { clauses }
+    }
+}
+
+/// Adds what each `T: Trait` implies through the trait's supertraits:
+/// `F: Fn(A)` gives `F: FnMut(A)` and `F: FnOnce(A)` (rustc's
+/// `elaborate`).
+pub fn elaborate<'tcx>(tcx: TyCtxt<'tcx>, clauses: &mut Vec<Clause<'tcx>>) {
+    let mut i = 0;
+    while i < clauses.len() && clauses.len() < 512 {
+        if let Clause::Trait(t) = clauses[i] {
+            if tcx.def_kind(t.def_id) == DefKind::Trait {
+                // The first predicate of a trait is `Self: Trait` itself.
+                for (c, _) in tcx.predicates_of(t.def_id).predicates.iter().skip(1) {
+                    let c = tcx.erase_regions_clause(tcx.instantiate_clause(*c, t.args));
+                    if !clauses.contains(&c) {
+                        clauses.push(c);
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+}
+
+/// Which function trait `def` is, if it's one.
+pub fn fn_trait_kind(tcx: TyCtxt<'_>, def: DefId) -> Option<ClosureKind> {
+    let li = tcx.lang_items();
+    if li.get(vsc_hir::LangItem::Fn) == Some(def) {
+        Some(ClosureKind::Fn)
+    } else if li.get(vsc_hir::LangItem::FnMut) == Some(def) {
+        Some(ClosureKind::FnMut)
+    } else if li.get(vsc_hir::LangItem::FnOnce) == Some(def) {
+        Some(ClosureKind::FnOnce)
+    } else {
+        None
     }
 }
 
@@ -59,6 +95,9 @@ pub enum Candidate<'tcx> {
     Impl(DefId, GenericArgsRef<'tcx>),
     /// A where clause in scope.
     Param(TraitRef<'tcx>),
+    /// Implemented by the compiler: the function traits for function
+    /// items, pointers, `func` values and literals.
+    Builtin,
 }
 
 #[derive(Debug)]
@@ -150,6 +189,26 @@ impl<'a, 'tcx> SelectionCtxt<'a, 'tcx> {
         if self_ty == self.tcx().types.error || depth > DEPTH_LIMIT {
             return Selection::Ambiguous;
         }
+        // `<Evens as Container>.Item: Describe`, from a where clause
+        // instantiated for a caller: normalize the projection first.
+        if let TyKind::Alias(alias) = *self_ty.kind() {
+            match self.normalize_projection(alias, span) {
+                Some((ty, mut nested)) if ty != self_ty => {
+                    let mut args = tr.args.to_vec();
+                    args[0] = GenericArg::Type(ty);
+                    let tr = TraitRef { def_id: tr.def_id, args: self.tcx().mk_args(&args) };
+                    return match self.select_at_depth(tr, span, depth + 1) {
+                        Selection::Selected(c, more) => {
+                            nested.extend(more);
+                            Selection::Selected(c, nested)
+                        }
+                        other => other,
+                    };
+                }
+                None => return Selection::Ambiguous,
+                _ => {}
+            }
+        }
 
         // Where clauses first, as in rustc.
         let params: Vec<TraitRef<'tcx>> = self
@@ -169,6 +228,19 @@ impl<'a, 'tcx> SelectionCtxt<'a, 'tcx> {
             }
             infcx.unify_args(first.args, tr.args).ok();
             return Selection::Selected(Candidate::Param(first), Vec::new());
+        }
+
+        if let Some(kind) = fn_trait_kind(self.tcx(), tr.def_id) {
+            if let Some((sig, self_kind)) = self.callable_sig(self_ty) {
+                if !self_kind.extends(kind) || tr.args.len() < 2 {
+                    return Selection::NoSolution;
+                }
+                let tuple = self.tcx().mk_tup(sig.inputs());
+                if infcx.commit_if_ok(|| infcx.unify(tr.args[1].expect_ty(), tuple)).is_err() {
+                    return Selection::NoSolution;
+                }
+                return Selection::Selected(Candidate::Builtin, Vec::new());
+            }
         }
 
         let mut applicable = Vec::new();
@@ -199,6 +271,36 @@ impl<'a, 'tcx> SelectionCtxt<'a, 'tcx> {
         }
     }
 
+    /// The signature of a value the function traits are built in for, and
+    /// the most specific of them it implements.
+    pub fn callable_sig(&self, ty: Ty<'tcx>) -> Option<(FnSig<'tcx>, ClosureKind)> {
+        let tcx = self.tcx();
+        match *self.infcx.shallow_resolve(ty).kind() {
+            TyKind::Closure(def, args) => {
+                let TyKind::FnPtr(sig) = *args[0].expect_ty().kind() else { return None };
+                let known = self.infcx.closure_kinds.borrow().get(&def).copied();
+                let kind = known.or_else(|| tcx.typeck(def).closure_kinds.get(&def.expect_local()).copied()).unwrap_or(ClosureKind::Fn);
+                Some((sig.value, kind))
+            }
+            TyKind::FnDef(def, args) => {
+                let sig = tcx.fn_sig(def).skip_binder();
+                if sig.safety == Safety::Unsafe {
+                    return None;
+                }
+                let io: Vec<Ty<'tcx>> = sig.inputs_and_output.iter().map(|t| tcx.erase_regions(tcx.instantiate(*t, args))).collect();
+                Some((FnSig { inputs_and_output: tcx.mk_type_list(&io), ..sig }, ClosureKind::Fn))
+            }
+            TyKind::FnPtr(sig) if sig.value.safety == Safety::Safe => Some((sig.value, ClosureKind::Fn)),
+            TyKind::Adt(d, a) if tcx.is_lang_item(d.did(), vsc_hir::LangItem::Func) && a.len() == 1 => {
+                match *self.infcx.shallow_resolve(a[0].expect_ty()).kind() {
+                    TyKind::FnPtr(sig) => Some((sig.value, ClosureKind::Fn)),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Normalizes a projection. `None` if it can't be decided yet.
     pub fn normalize_projection(&self, alias: AliasTy<'tcx>, span: Span) -> Option<(Ty<'tcx>, Vec<Obligation<'tcx>>)> {
         let tcx = self.tcx();
@@ -214,6 +316,17 @@ impl<'a, 'tcx> SelectionCtxt<'a, 'tcx> {
                     Some(item) => tcx.erase_regions(tcx.instantiate(tcx.type_of(item.def_id), args)),
                     None => tcx.types.error,
                 };
+                // The impl's type may itself be a projection: `&F`'s
+                // `Output` is `F`'s.
+                if let TyKind::Alias(inner) = *self.infcx.resolve_vars_if_possible(ty).kind() {
+                    if inner != alias {
+                        if let Some((ty, more)) = self.normalize_projection(inner, span) {
+                            let mut nested = nested;
+                            nested.extend(more);
+                            return Some((ty, nested));
+                        }
+                    }
+                }
                 Some((ty, nested))
             }
             Selection::Selected(Candidate::Param(_), _) => {
@@ -229,6 +342,11 @@ impl<'a, 'tcx> SelectionCtxt<'a, 'tcx> {
                 }
                 let resolved = AliasTy { def_id: alias.def_id, args: infcx.resolve_args(alias.args) };
                 Some((tcx.mk_ty(TyKind::Alias(resolved)), Vec::new()))
+            }
+            Selection::Selected(Candidate::Builtin, nested) => {
+                // `<F as FnOnce<A>>.Output` is the signature's output.
+                let output = self.callable_sig(tr.self_ty()).map(|(sig, _)| sig.output()).unwrap_or(tcx.types.error);
+                Some((output, nested))
             }
             Selection::Ambiguous => None,
             Selection::NoSolution => Some((tcx.types.error, Vec::new())),

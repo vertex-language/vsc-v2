@@ -33,6 +33,9 @@ struct Tables<'tcx> {
 pub struct InferCtxt<'tcx> {
     pub tcx: TyCtxt<'tcx>,
     tables: RefCell<Tables<'tcx>>,
+    /// The kinds of the function literals checked so far in this body,
+    /// for selecting the function traits before writeback.
+    pub closure_kinds: RefCell<vsc_data_structures::FxHashMap<DefId, ClosureKind>>,
 }
 
 #[derive(Clone, Copy)]
@@ -49,7 +52,7 @@ pub struct TypeError;
 
 impl<'tcx> InferCtxt<'tcx> {
     pub fn new(tcx: TyCtxt<'tcx>) -> Self {
-        InferCtxt { tcx, tables: RefCell::new(Tables::default()) }
+        InferCtxt { tcx, tables: RefCell::new(Tables::default()), closure_kinds: RefCell::default() }
     }
 
     // -----------------------------------------------------------------------

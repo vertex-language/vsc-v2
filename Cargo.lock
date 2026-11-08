@@ -207,6 +207,7 @@ version = "0.1.0"
 name = "vsc_infer"
 version = "0.1.0"
 dependencies = [
+ "vsc_data_structures",
  "vsc_middle",
  "vsc_span",
 ]

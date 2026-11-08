@@ -132,7 +132,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         (inherent, traits)
     }
 
-    fn param_env_clauses(&self) -> Vec<Clause<'tcx>> {
+    pub(crate) fn param_env_clauses(&self) -> Vec<Clause<'tcx>> {
         self.param_env.clauses.clone()
     }
 

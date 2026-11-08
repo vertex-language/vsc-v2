@@ -60,6 +60,7 @@ impl<'tcx> Collector<'tcx> {
                 "variant" => matches!(kind, DefKind::Variant),
                 "method" => matches!(kind, DefKind::AssocFn),
                 "fn" => matches!(kind, DefKind::Fn),
+                "trait" => matches!(kind, DefKind::Trait),
                 _ => false,
             };
             if !fits {

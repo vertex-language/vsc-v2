@@ -231,6 +231,22 @@ impl<'tcx, T> Binder<'tcx, T> {
     }
 }
 
+/// Which function traits a function literal implements (rustc's
+/// `ClosureKind`), in order: an `Fn` literal is also `FnMut` and `FnOnce`.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum ClosureKind {
+    Fn,
+    FnMut,
+    FnOnce,
+}
+
+impl ClosureKind {
+    /// Does a literal of this kind implement the trait of kind `other`?
+    pub fn extends(self, other: ClosureKind) -> bool {
+        self <= other
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Safety {
     Safe,

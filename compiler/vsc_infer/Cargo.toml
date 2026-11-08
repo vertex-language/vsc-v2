@@ -6,5 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+vsc_data_structures.workspace = true
 vsc_middle.workspace = true
 vsc_span.workspace = true

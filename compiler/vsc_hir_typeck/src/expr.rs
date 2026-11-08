@@ -562,8 +562,10 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         let callee_ty = self.check_expr(callee);
         let mut t = self.structurally_resolve(callee_ty, callee.span);
         // Through references: calling `&F`.
+        let mut derefs = Vec::new();
         while let TyKind::Ref(_, inner, _) = *t.kind() {
             t = self.structurally_resolve(inner, callee.span);
+            derefs.push(t);
         }
         let sig = match *t.kind() {
             TyKind::FnDef(def, fargs) => self.instantiate_sig(def, fargs, e.span),
@@ -581,10 +583,85 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                 }
                 return tcx.types.error;
             }
-            _ => return self.not_callable(callee, t, args),
+            _ => return self.check_overloaded_call(e, callee, t, derefs, args),
         };
         self.check_args(e.span, &sig, sig.inputs(), args, "function");
         sig.output()
+    }
+
+    /// `f(x)` where `f` isn't a function but implements one of the function
+    /// traits, as a parameter `F: Fn(int32) -> int32` does: a call of
+    /// `Fn.call(&f, (x,))`, `FnMut.callMut(&mut f, (x,))` or
+    /// `FnOnce.callOnce(f, (x,))`, trying them in that order (rustc's
+    /// `try_overloaded_call_traits`).
+    fn check_overloaded_call(&self, e: &hir::Expr, callee: &hir::Expr, t: Ty<'tcx>, derefs: Vec<Ty<'tcx>>, args: &[hir::Expr]) -> Ty<'tcx> {
+        let tcx = self.tcx;
+        let li = tcx.lang_items();
+        let arg_tys: Vec<Ty<'tcx>> = args.iter().map(|_| self.infcx.next_ty_var()).collect();
+        let tuple = tcx.mk_tup(&arg_tys);
+        let fn_once = li.get(LangItem::FnOnce);
+        let output_item = fn_once.and_then(|d| tcx.associated_items(d).iter().find(|i| i.kind == AssocKind::Type).map(|i| i.def_id));
+        for (item, name, borrow) in [
+            (LangItem::Fn, "call", Some(Mutability::Not)),
+            (LangItem::FnMut, "callMut", Some(Mutability::Mut)),
+            (LangItem::FnOnce, "callOnce", None),
+        ] {
+            let Some(trait_def) = li.get(item) else { continue };
+            let call_args = tcx.mk_args(&[GenericArg::Type(t), GenericArg::Type(tuple)]);
+            let tr = TraitRef { def_id: trait_def, args: call_args };
+            let selcx = self.selcx();
+            if !self.infcx.probe(|| matches!(selcx.select(tr, e.span), vsc_trait_selection::Selection::Selected(..))) {
+                continue;
+            }
+            let Some(method) = tcx.associated_items(trait_def).iter().find(|i| matches!(i.kind, AssocKind::Fn { .. }) && i.name.as_str() == name).map(|i| i.def_id)
+            else {
+                continue;
+            };
+            let (Some(fn_once), Some(output_item)) = (fn_once, output_item) else { continue };
+            self.register_trait(tr, e.span);
+            self.select_where_possible();
+            let mut adj: Vec<Adjustment<'tcx>> = derefs.iter().map(|&target| Adjustment { kind: Adjust::Deref, target }).collect();
+            if let Some(m) = borrow {
+                adj.push(Adjustment { kind: Adjust::Borrow(m), target: tcx.mk_ref(tcx.regions.re_erased, t, m) });
+            }
+            self.write_adjustments(callee.hir_id, adj);
+            self.write_resolution(e.hir_id, DefKind::AssocFn, method);
+            self.write_args(e.hir_id, call_args);
+            for (a, &ty) in args.iter().zip(&arg_tys) {
+                self.check_expr_coercible_to_type(a, ty);
+            }
+            let _ = fn_once;
+            let output = tcx.mk_ty(TyKind::Alias(AliasTy { def_id: output_item, args: call_args }));
+            return self.normalize(output, e.span);
+        }
+        // A bound `F: Fn(A)` with a different number of arguments.
+        let bound_arity = self.param_env_clauses().iter().find_map(|c| match c {
+            Clause::Trait(tr) if tr.self_ty() == t && vsc_trait_selection::fn_trait_kind(tcx, tr.def_id).is_some() && tr.args.len() == 2 => {
+                match tr.args[1].expect_ty().kind() {
+                    TyKind::Tuple(tys) => Some(tys.len()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        });
+        if let Some(n) = bound_arity {
+            if n != args.len() {
+                for a in args {
+                    self.check_expr(a);
+                }
+                let plural = |k: usize| format!("{k} argument{}", if k == 1 { "" } else { "s" });
+                self.err(e.span, format!(
+                    "this function takes {} but {} {} supplied",
+                    plural(n),
+                    plural(args.len()),
+                    if args.len() == 1 { "was" } else { "were" }
+                ))
+                .with_code(ErrCode(57))
+                .emit();
+                return tcx.types.error;
+            }
+        }
+        self.not_callable(callee, t, args)
     }
 
     fn not_callable(&self, callee: &hir::Expr, t: Ty<'tcx>, args: &[hir::Expr]) -> Ty<'tcx> {
@@ -986,6 +1063,11 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         let saved = self.diverges.replace(false);
         self.check_fn_body(body, sig.inputs(), sig.output());
         self.diverges.set(saved);
+        let (kind, mutated) = self.closure_kind(body);
+        self.closure_mutations.borrow_mut().insert(c.def_id, mutated);
+        self.closure_decl_spans.borrow_mut().insert(c.def_id, c.fn_decl_span);
+        self.infcx.closure_kinds.borrow_mut().insert(c.def_id.to_def_id(), kind);
+        self.results.borrow_mut().closure_kinds.insert(c.def_id, kind);
         let sig_ty = tcx.mk_ty(TyKind::FnPtr(Binder::dummy(sig)));
         tcx.mk_ty(TyKind::Closure(c.def_id.to_def_id(), tcx.mk_args(&[GenericArg::Type(sig_ty)])))
     }

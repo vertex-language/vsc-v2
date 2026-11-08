@@ -27,6 +27,7 @@ pub mod dump;
 mod expr;
 mod method;
 mod pat;
+mod upvar;
 
 #[cfg(test)]
 mod tests;
@@ -125,6 +126,11 @@ pub struct FnCtxt<'a, 'tcx> {
     /// The session's error count when checking started: any error since
     /// (a missing lang item, say) taints the body too.
     errors_at_start: usize,
+    /// For each function literal checked: the captured variables it
+    /// mutates, which make the literals around it `FnMut` too.
+    pub(crate) closure_mutations: RefCell<FxHashMap<LocalDefId, Vec<(HirId, Span, vsc_span::Symbol)>>>,
+    /// Each function literal's `func(…) -> T`, for diagnostics.
+    pub(crate) closure_decl_spans: RefCell<FxHashMap<LocalDefId, Span>>,
 }
 
 /// What an expression is expected to be.
@@ -161,6 +167,8 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
             tainted: Cell::new(false),
             int_literals: RefCell::new(Vec::new()),
             errors_at_start: tcx.dcx().err_count(),
+            closure_mutations: RefCell::default(),
+            closure_decl_spans: RefCell::default(),
         }
     }
 
@@ -364,6 +372,36 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         t
     }
 
+    /// A function literal that mutates what it captures passed where `Fn`
+    /// is required (rustc's E0525). Returns whether it reported one.
+    fn report_closure_kind_error(&self, tr: TraitRef<'tcx>, self_ty: Ty<'tcx>, span: Span) -> bool {
+        let Some(wanted) = vsc_trait_selection::fn_trait_kind(self.tcx, tr.def_id) else { return false };
+        let TyKind::Closure(def, _) = *self_ty.kind() else { return false };
+        let Some(found) = self.infcx.closure_kinds.borrow().get(&def).copied() else { return false };
+        if found.extends(wanted) {
+            return false;
+        }
+        let name = |k: ClosureKind| match k {
+            ClosureKind::Fn => "Fn",
+            ClosureKind::FnMut => "FnMut",
+            ClosureKind::FnOnce => "FnOnce",
+        };
+        let closure_span = self.closure_decl_spans.borrow().get(&def.expect_local()).copied().unwrap_or_else(|| self.tcx.def_span(def));
+        let mut diag = self
+            .err(closure_span, format!(
+                "expected a function literal that implements the `{}` trait, but this function literal only implements `{}`",
+                name(wanted),
+                name(found)
+            ))
+            .with_code(ErrCode(525))
+            .with_span_label(closure_span, format!("this function literal implements `{}`, not `{}`", name(found), name(wanted)));
+        if let Some(&(_, at, var_name)) = self.closure_mutations.borrow().get(&def.expect_local()).and_then(|m| m.first()) {
+            diag = diag.with_span_label(at, format!("function literal is `{}` because it mutates the variable `{var_name}` here", name(found)));
+        }
+        diag.with_span_label(span, format!("the requirement to implement `{}` derives from here", name(wanted))).emit();
+        true
+    }
+
     fn report_fulfillment_errors(&self, errors: Vec<FulfillmentError<'tcx>>) {
         for e in errors {
             match e {
@@ -374,6 +412,9 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                         continue;
                     }
                     let tr = TraitRef { def_id: tr.def_id, args: self.infcx.resolve_args(tr.args) };
+                    if self.report_closure_kind_error(tr, self_ty, o.span) {
+                        continue;
+                    }
                     let trait_str = self.tcx.trait_ref_to_string(tr);
                     let ty_str = self.ty_str(self_ty);
                     self.err(o.span, format!("the trait bound `{ty_str}: {trait_str}` is not satisfied"))

@@ -687,6 +687,14 @@ impl<'a, 'tcx> Interpreter<'a, 'tcx> {
         match f {
             Value::FnDef(def, args) => {
                 let (def, args) = self.resolve(def, args);
+                // The function traits' methods for what they're built in
+                // for: call the value with the tuple's elements.
+                if tcx.opt_parent(def).is_some_and(|p| vsc_trait_selection::fn_trait_kind(tcx, p).is_some()) && vals.len() == 2 {
+                    let mut vals = vals;
+                    let Value::Tuple(untupled) = vals.pop().unwrap() else { return self.ub("function trait arguments that aren't a tuple") };
+                    let callee = vals.pop().unwrap();
+                    return self.call(callee, untupled, dest, target);
+                }
                 if let Some(v) = self.call_intrinsic(def, args, &vals)? {
                     self.write(&dest, v)?;
                     match target {

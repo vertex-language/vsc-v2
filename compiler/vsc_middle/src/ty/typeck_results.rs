@@ -22,6 +22,8 @@ pub struct TypeckResults<'tcx> {
     pub adjustments: FxHashMap<HirId, Vec<Adjustment<'tcx>>>,
     /// Each function literal's signature.
     pub closure_sigs: FxHashMap<LocalDefId, PolyFnSig<'tcx>>,
+    /// Which function traits each function literal implements.
+    pub closure_kinds: FxHashMap<LocalDefId, ClosureKind>,
     /// The references a pattern looked through under default binding
     /// modes, outermost first (rustc's `pat_adjustments`).
     pub pat_adjustments: FxHashMap<HirId, Vec<Ty<'tcx>>>,
@@ -42,6 +44,7 @@ impl<'tcx> TypeckResults<'tcx> {
             field_indices: FxHashMap::default(),
             adjustments: FxHashMap::default(),
             closure_sigs: FxHashMap::default(),
+            closure_kinds: FxHashMap::default(),
             pat_adjustments: FxHashMap::default(),
             pat_binding_modes: FxHashMap::default(),
             tainted_by_errors: false,

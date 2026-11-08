@@ -1,0 +1,25 @@
+error[E0057]: this function takes 1 argument but 2 arguments were supplied
+  --> $DIR/fn-traits.vs:16:5
+   |
+16 |     f(1, 2) //~ ERROR this function takes 1 argument but 2 arguments were supplied
+   |     ^^^^^^^
+
+error[E0618]: expected function, found `{integer}`
+  --> $DIR/fn-traits.vs:32:5
+   |
+32 |     x() //~ ERROR expected function, found `{integer}`
+   |     ^ call expression requires function
+
+error[E0525]: expected a function literal that implements the `Fn` trait, but this function literal only implements `FnMut`
+  --> $DIR/fn-traits.vs:21:16
+   |
+21 |     let bump = func() -> int32 { //~ ERROR expected a function literal that implements the `Fn` trait
+   |                ^^^^^^^^^^^^^^^ this function literal implements `FnMut`, not `Fn`
+22 |         n += 1
+   |         - function literal is `FnMut` because it mutates the variable `n` here
+...
+25 |     callFn(bump)
+   |     ------ the requirement to implement `Fn` derives from here
+
+error: aborting due to 3 previous errors
+

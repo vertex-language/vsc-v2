@@ -558,7 +558,8 @@ impl<'tcx> ItemCtxt<'tcx> {
                 let n = path.segments.len();
                 let trait_seg = n.checked_sub(2).map(|i| &path.segments[i]);
                 let args = self.lower_generic_args(trait_def, trait_seg.and_then(|s| s.args.as_deref()), Some(self_ty), span);
-                self.no_generic_args(path);
+                // The trait's segment takes its arguments; no other does.
+                self.no_generic_args_except(path, n.checked_sub(2));
                 tcx.mk_ty(TyKind::Alias(AliasTy { def_id: assoc, args }))
             }
             hir::QPath::TypeRelative(base, seg) => {
@@ -675,6 +676,31 @@ impl<'tcx> ItemCtxt<'tcx> {
         }
     }
 
+    /// The associated type `name` of `tr`'s trait or, failing that, of its
+    /// supertraits, with the trait reference that declares it.
+    fn find_assoc_ty(&self, tr: TraitRef<'tcx>, name: Symbol) -> Option<(TraitRef<'tcx>, DefId)> {
+        let tcx = self.tcx;
+        let mut stack = vec![tr];
+        let mut seen = Vec::new();
+        while let Some(t) = stack.pop() {
+            if seen.contains(&t.def_id) {
+                continue;
+            }
+            seen.push(t.def_id);
+            if let Some(item) = tcx.associated_items(t.def_id).iter().find(|i| i.kind == AssocKind::Type && i.name == name) {
+                return Some((t, item.def_id));
+            }
+            for (c, _) in tcx.predicates_of(t.def_id).predicates.iter().skip(1) {
+                if let Clause::Trait(s) = tcx.instantiate_clause(*c, t.args) {
+                    if s.self_ty() == t.self_ty() {
+                        stack.push(s);
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// `T.Assoc`: an associated type of a trait `T` is bounded by, or of the
     /// trait itself for `Self`.
     fn lower_type_relative(&mut self, base_ty: Ty<'tcx>, base: &hir::Ty, seg: &hir::PathSegment, span: Span) -> Ty<'tcx> {
@@ -688,9 +714,9 @@ impl<'tcx> ItemCtxt<'tcx> {
         };
         let mut found: Vec<(TraitRef<'tcx>, DefId)> = Vec::new();
         for tr in candidates {
-            if let Some(item) = tcx.associated_items(tr.def_id).iter().find(|i| i.kind == AssocKind::Type && i.name == seg.ident.name) {
-                if !found.iter().any(|(t, _)| t.def_id == tr.def_id) {
-                    found.push((tr, item.def_id));
+            if let Some((owner, item)) = self.find_assoc_ty(tr, seg.ident.name) {
+                if !found.iter().any(|(t, _)| t.def_id == owner.def_id) {
+                    found.push((owner, item));
                 }
             }
         }
@@ -780,7 +806,14 @@ impl<'tcx> ItemCtxt<'tcx> {
     }
 
     fn no_generic_args(&self, path: &hir::Path) {
-        for seg in &path.segments {
+        self.no_generic_args_except(path, None);
+    }
+
+    fn no_generic_args_except(&self, path: &hir::Path, except: Option<usize>) {
+        for (i, seg) in path.segments.iter().enumerate() {
+            if Some(i) == except {
+                continue;
+            }
             if let Some(args) = &seg.args {
                 if !args.args.is_empty() || !args.constraints.is_empty() {
                     self.tcx
@@ -937,14 +970,15 @@ impl<'tcx> ItemCtxt<'tcx> {
         let mut projections = Vec::new();
         if let Some(a) = &seg.args {
             for c in &a.constraints {
-                let Some(item) = tcx.associated_items(def).iter().find(|i| i.kind == AssocKind::Type && i.name == c.ident.name) else {
+                // `Fn(A) -> B` constrains `Output`, which `FnOnce` declares.
+                let Some((owner, item)) = self.find_assoc_ty(tr, c.ident.name) else {
                     tcx.dcx()
                         .struct_span_err(c.ident.span, format!("associated type `{}` not found for `{}`", c.ident, tcx.def_path_str(def)))
                         .with_code(ErrCode(220))
                         .emit();
                     continue;
                 };
-                let alias = AliasTy { def_id: item.def_id, args };
+                let alias = AliasTy { def_id: item, args: owner.args };
                 match &c.kind {
                     hir::AssocItemConstraintKind::Equality(ty) => {
                         let ty = self.lower_ty(ty);
