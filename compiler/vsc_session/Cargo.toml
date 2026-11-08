@@ -1,0 +1,11 @@
+[package]
+name = "vsc_session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vsc_data_structures.workspace = true
+vsc_errors.workspace = true
+vsc_span.workspace = true

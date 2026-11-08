@@ -1,0 +1,10 @@
+error[E0261]: use of undeclared origin `c`
+ --> $DIR/origins.vs:9:31
+  |
+9 | func nowhere(a: &string) -> &[c] string { a } //~ ERROR use of undeclared origin `c`
+  |                               ^ undeclared origin
+  |
+  = help: an origin names a parameter of the function, or one declared as `c: Origin` in the generics
+
+error: aborting due to 1 previous error
+

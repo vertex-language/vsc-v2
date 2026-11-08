@@ -1,0 +1,48 @@
+[workspace]
+resolver = "3"
+members = [
+    "compiler/*",
+    "src/bootstrap",
+    "src/tools/compiletest",
+    "src/tools/tidy",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "MIT"
+repository = "https://github.com/vertex-language/vsc-v2"
+
+# Every dependency is a path inside this repository. Outside crates are only
+# allowed through the allowlist in src/tools/tidy/src/deps.rs.
+[workspace.dependencies]
+vsc_arena = { path = "compiler/vsc_arena" }
+vsc_ast = { path = "compiler/vsc_ast" }
+vsc_ast_lowering = { path = "compiler/vsc_ast_lowering" }
+vsc_ast_pretty = { path = "compiler/vsc_ast_pretty" }
+vsc_builtin_macros = { path = "compiler/vsc_builtin_macros" }
+vsc_data_structures = { path = "compiler/vsc_data_structures" }
+vsc_driver_impl = { path = "compiler/vsc_driver_impl" }
+vsc_errors = { path = "compiler/vsc_errors" }
+vsc_expand = { path = "compiler/vsc_expand" }
+vsc_hir = { path = "compiler/vsc_hir" }
+vsc_hir_analysis = { path = "compiler/vsc_hir_analysis" }
+vsc_hir_pretty = { path = "compiler/vsc_hir_pretty" }
+vsc_hir_typeck = { path = "compiler/vsc_hir_typeck" }
+vsc_index = { path = "compiler/vsc_index" }
+vsc_infer = { path = "compiler/vsc_infer" }
+vsc_lexer = { path = "compiler/vsc_lexer" }
+vsc_middle = { path = "compiler/vsc_middle" }
+vsc_mir_build = { path = "compiler/vsc_mir_build" }
+vsc_parse = { path = "compiler/vsc_parse" }
+vsc_parse_format = { path = "compiler/vsc_parse_format" }
+vsc_passes = { path = "compiler/vsc_passes" }
+vsc_pattern_analysis = { path = "compiler/vsc_pattern_analysis" }
+vsc_resolve = { path = "compiler/vsc_resolve" }
+vsc_session = { path = "compiler/vsc_session" }
+vsc_span = { path = "compiler/vsc_span" }
+vsc_trait_selection = { path = "compiler/vsc_trait_selection" }
+
+[profile.release]
+debug = "line-tables-only"

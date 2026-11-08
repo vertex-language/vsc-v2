@@ -1,0 +1,30 @@
+error[E0434]: can't capture dynamic environment in a function item
+ --> $DIR/scopes.vs:4:29
+  |
+4 |     func inner() -> int64 { x } //~ ERROR can't capture dynamic environment in a function item
+  |                             ^
+  |
+  = help: use a function literal instead: `func(…) { … }`
+
+error[E0401]: can't use generic parameters from outer item
+ --> $DIR/scopes.vs:5:21
+  |
+5 |     func generic(v: T) {} //~ ERROR can't use generic parameters from outer item
+  |                     ^
+
+error[E0426]: use of undeclared label `'b`
+ --> $DIR/scopes.vs:7:15
+  |
+7 |         break 'b //~ ERROR use of undeclared label `'b`
+  |               ^^ undeclared label `'b`
+
+error[E0424]: expected value, found package `self`
+  --> $DIR/scopes.vs:11:36
+   |
+11 | func (t: &Task) Method() -> bool { self.done } //~ ERROR expected value, found package `self`
+   |                                    ^^^^ `self` value is only available in methods with a `self` parameter
+   |
+   = help: in a flat method, the receiver has the name you gave it: `func (t: &Task) M()` uses `t`
+
+error: aborting due to 4 previous errors
+

@@ -1,0 +1,58 @@
+struct Stack<T> {
+    items: [T; 4],
+    len: uint,
+}
+
+// flat receiver
+impl<T> Stack<T> {
+    fn Push(s: &mut Stack<T>, x: T) {
+        s.len += 1
+    }
+}
+
+struct Highlight<'src> {
+    text: &'src string,
+}
+
+// flat receiver
+impl<'src> Highlight<'src> {
+    fn Text(h: &Highlight<'src>) -> &'src string {
+        h.text
+    }
+}
+
+fn longest(a: &string, b: &string) -> &'[a, b] string {
+    if drop_temps!(a.Len() >= b.Len()) {
+        a
+    } else {
+        b
+    }
+}
+
+fn pick<'x, 'y>(p: &'x int64, q: &'y int64) -> &'x int64 where 'x: 'y {
+    p
+}
+
+trait Shape {
+    type Unit;
+    const Sides: uint;
+    fn Area(&self) -> float64;
+    fn Name(&self) -> string {
+        "shape"
+    }
+}
+
+class Counter {
+    value: int64,
+}
+
+extern "C" {
+    fn abs(n: int32) -> int32;
+    static errno: int32;
+}
+
+fn main() {
+    let (mut a, mut b) = (1, 2);
+    let (c, mut d) = (3, 4);
+}
+

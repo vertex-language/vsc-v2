@@ -1,0 +1,28 @@
+error[E0005]: refutable pattern in local binding
+ --> $DIR/refutable.vs:7:9
+  |
+7 |     let Option.Some(v) = o //~ ERROR refutable pattern in local binding
+  |         ^^^^^^^^^^^^^^ pattern `Option.None` not covered
+  |
+  = note: `let` bindings require an "irrefutable pattern", like a `struct` or an `enum` with only one variant
+  = help: you might want to use `let else` to handle the values that aren't matched
+  = note: the matched value is of type `Option<int32>`
+
+error[E0005]: refutable pattern in `for` loop binding
+ --> $DIR/refutable.vs:8:9
+  |
+8 |     for Option.Some(z) in os {} //~ ERROR refutable pattern in `for` loop binding
+  |         ^^^^^^^^^^^^^^ pattern `&Option.None` not covered
+  |
+  = note: the matched value is of type `&Option<int32>`
+
+error[E0005]: refutable pattern in function argument
+  --> $DIR/refutable.vs:10:18
+   |
+10 |     let g = func(Option.Some(x): Option<int32>) {} //~ ERROR refutable pattern in function argument
+   |                  ^^^^^^^^^^^^^^ pattern `Option.None` not covered
+   |
+   = note: the matched value is of type `Option<int32>`
+
+error: aborting due to 3 previous errors
+

@@ -1,0 +1,46 @@
+enum Res {
+    Good(int64),
+    Bad,
+}
+
+fn parse(r: Res) -> Res {
+    let n = match #[lang = "branch"](r) {
+        #[lang = "Continue"](val) => val,
+        #[lang = "Break"](residual) => return #[lang = "fromResidual"](residual),
+    };
+    Res::Good(n)
+}
+
+fn ranges(n: int64) {
+    let a = #[lang = "Range"] { start: 0, end: n };
+    let b = #[lang = "RangeFrom"] { start: n };
+    let c = #[lang = "RangeTo"] { end: n };
+    let d = #[lang = "rangeInclusiveNew"](0, n);
+    let e = #[lang = "RangeToInclusive"] { end: n };
+    let f = #[lang = "RangeFull"];
+}
+
+fn vectors(n: uint) {
+    let empty = #[lang = "vecNew"]();
+    let three = #[lang = "vecFromArray"]([1, 2, 3]);
+    let zeros = #[lang = "vecFromElem"](0, n);
+}
+
+fn swap() {
+    let mut a = 1;
+    let mut b = 2;
+    {
+        let (lhs0, lhs1) = (b, a);
+        a = lhs0;
+        b = lhs1;
+    };
+    {
+        let _ = a + b;
+    };
+    {
+        let [lhs0, .., lhs1] = [1, 2, 3];
+        a = lhs0;
+        b = lhs1;
+    }
+}
+

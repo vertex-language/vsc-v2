@@ -1,0 +1,104 @@
+error: visibility is written `public` in Vertex
+ --> $DIR/rust-spellings.vs:6:1
+  |
+6 | pub fn main() {
+  | ^^^
+help: use `public`
+  |
+6 | public fn main() {
+  | ~~~~~~
+
+error: functions are declared with `func` in Vertex
+ --> $DIR/rust-spellings.vs:6:5
+  |
+6 | pub fn main() {
+  |     ^^
+help: use `func`
+  |
+6 | pub func main() {
+  |     ~~~~
+
+error: mutable bindings are declared with `var` in Vertex
+ --> $DIR/rust-spellings.vs:9:5
+  |
+9 |     let mut count = 0 //~ ERROR mutable bindings are declared with `var` in Vertex
+  |     ^^^^^^^
+help: use `var`
+  |
+9 |     var count = 0 //~ ERROR mutable bindings are declared with `var` in Vertex
+  |     ~~~
+
+error: paths are separated by `.` in Vertex, not `::`
+  --> $DIR/rust-spellings.vs:10:18
+   |
+10 |     let text = fs::ReadToString("notes.txt") //~ ERROR paths are separated by `.` in Vertex, not `::`
+   |                  ^^
+help: use `.`
+   |
+10 |     let text = fs.ReadToString("notes.txt") //~ ERROR paths are separated by `.` in Vertex, not `::`
+   |                  ~
+
+error: match arms are separated by line breaks, not `,`
+  --> $DIR/rust-spellings.vs:12:20
+   |
+12 |         0 => "none", //~ ERROR match arms are separated by line breaks, not `,`
+   |                    ^
+help: remove the comma
+   |
+12 |         0 => "none", //~ ERROR match arms are separated by line breaks, not `,`
+   |                    -
+
+error: attributes are written `@name` in Vertex, not `#[name]`
+  --> $DIR/rust-spellings.vs:17:1
+   |
+17 | #[derive(Debug)] //~ ERROR attributes are written `@name` in Vertex, not `#[name]`
+   | ^^^^^^^^^^^^^^^^
+help: use `@`
+   |
+17 | @derive(Debug) //~ ERROR attributes are written `@name` in Vertex, not `#[name]`
+   | ~~~~~~~~~~~~~~
+
+error: struct fields are separated by line breaks, not `,`
+  --> $DIR/rust-spellings.vs:18:26
+   |
+18 | struct Point { x: float64, y: float64 } //~ ERROR struct fields are separated by line breaks, not `,`
+   |                          ^
+   |
+   = note: put fields on their own lines, or separate them with `;` on one line
+help: use `;` to separate them on one line
+   |
+18 | struct Point { x: float64; y: float64 } //~ ERROR struct fields are separated by line breaks, not `,`
+   |                          ~
+
+error: Vertex declares origins, not lifetimes
+  --> $DIR/rust-spellings.vs:20:14
+   |
+20 | func longest<'a>(a: &'a string) -> &'a string { a }
+   |              ^^
+help: declare an origin parameter
+   |
+20 | func longest<a: Origin>(a: &'a string) -> &'a string { a }
+   |              ~~~~~~~~~
+
+error: Vertex has no lifetimes
+  --> $DIR/rust-spellings.vs:20:22
+   |
+20 | func longest<'a>(a: &'a string) -> &'a string { a }
+   |                      ^^
+help: name the parameter the reference borrows from instead
+   |
+20 | func longest<'a>(a: &[a] string) -> &'a string { a }
+   |                      ~~~
+
+error: Vertex has no lifetimes
+  --> $DIR/rust-spellings.vs:20:37
+   |
+20 | func longest<'a>(a: &'a string) -> &'a string { a }
+   |                                     ^^
+help: name the parameter the reference borrows from instead
+   |
+20 | func longest<'a>(a: &'a string) -> &[a] string { a }
+   |                                     ~~~
+
+error: aborting due to 10 previous errors
+

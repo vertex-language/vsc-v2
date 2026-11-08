@@ -1,0 +1,42 @@
+error[E0106]: missing origin specifier
+ --> $DIR/origin-errors.vs:6:11
+  |
+6 |     text: &int64 //~ ERROR missing origin specifier
+  |           ^ expected a named origin
+  |
+  = help: declare an origin parameter (`src: Origin`) and borrow from it: `&[src] T`
+
+error[E0106]: missing origin specifier
+ --> $DIR/origin-errors.vs:9:35
+  |
+9 | func two(a: &int64, b: &int64) -> &int64 { a } //~ ERROR missing origin specifier
+  |                                   ^ expected a named origin
+  |
+  = help: this function's return type contains a borrowed value, but the signature does not say which parameter it is borrowed from
+  = help: name the parameter it borrows from: `&[a] T` borrows from parameter `a`
+
+error[E0106]: missing origin specifier
+  --> $DIR/origin-errors.vs:11:16
+   |
+11 | func none() -> &int64 { loop {} } //~ ERROR missing origin specifier
+   |                ^ expected a named origin
+   |
+   = help: this function's return type contains a borrowed value, but there is no parameter for it to be borrowed from
+   = help: borrow from `[static]`, or return an owned value
+
+error: origin `a` names a parameter that doesn't borrow
+  --> $DIR/origin-errors.vs:13:28
+   |
+13 | func notRef(a: int64) -> &[a] int64 { loop {} } //~ ERROR origin `a` names a parameter that doesn't borrow
+   |                            ^ `a`'s type has no reference to borrow from
+   |
+   = note: an origin names a parameter of reference type, or an origin parameter
+
+error: origin `b` names a parameter declared after it
+  --> $DIR/origin-errors.vs:15:17
+   |
+15 | func later(a: &[b] int64, b: &int64) {} //~ ERROR origin `b` names a parameter declared after it
+   |                 ^ declared later in the parameter list
+
+error: aborting due to 5 previous errors
+

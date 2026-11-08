@@ -1,0 +1,39 @@
+struct Class<T>
+    inner: T
+struct Func<F>
+    f: F
+class Counter
+    value: int64
+fn tick: func(Counter, func(int64) -> int64) -> func() -> int64
+trait Shape
+    where Self: Shape
+type Shape.Unit
+fn Shape.Area: func(&Self) -> float64
+fn Shape.Scaled: func(&Self, float64) -> <Self as Shape>.Unit
+struct Square
+    side: float64
+implement Shape for Square
+type Square.Unit = float64
+fn Square.Area: func(&Square) -> float64
+fn Square.Scaled: func(&Square, float64) -> float64
+fn total<T>: func(&[T]) -> <T as Shape>.Unit
+    where T: Shape
+    where <T as Shape>.Unit: Shape
+fn qualified<T>: func(<T as Shape>.Unit)
+    where T: Shape
+struct Stack<T, const N: uint>
+    items: [T; N]
+    len: uint
+implement<T, const N: uint> Stack<T, N>
+fn Stack.Push: func(&mut Stack<T, N>, T)
+type Grid<T> = [[T; 3]; 3]
+fn center: func([[int32; 3]; 3]) -> int32
+enum Tree<T>
+    Leaf
+        0: T
+    Node
+        left: uint
+        right: uint
+type FILE
+fn fopen: unsafe extern "C" func(*const uint8, *const uint8) -> *mut FILE
+fn abs: extern "C" func(int32) -> int32

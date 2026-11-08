@@ -1,0 +1,15 @@
+[package]
+name = "vsc_expand"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vsc_ast.workspace = true
+vsc_builtin_macros.workspace = true
+vsc_errors.workspace = true
+vsc_lexer.workspace = true
+vsc_parse.workspace = true
+vsc_session.workspace = true
+vsc_span.workspace = true

@@ -1,0 +1,108 @@
+error[E0308]: mismatched types
+  --> $DIR/errors.vs:11:20
+   |
+11 |     let a: int64 = true //~ ERROR mismatched types
+   |                    ^^^^ expected `int64`, found `bool`
+
+error[E0061]: this function takes 1 argument but 2 arguments were supplied
+  --> $DIR/errors.vs:12:13
+   |
+12 |     let b = takes(1, 2) //~ ERROR this function takes 1 argument but 2 arguments were supplied
+   |             ^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> $DIR/errors.vs:13:19
+   |
+13 |     let c = takes("hi") //~ ERROR mismatched types
+   |                   ^^^^ expected `int64`, found `&string`
+
+error[E0063]: missing field `y` in initializer of `Point`
+  --> $DIR/errors.vs:14:13
+   |
+14 |     let p = Point { x: 1.0 } //~ ERROR missing field `y` in initializer of `Point`
+   |             ^^^^^^^^^^^^^^^^ missing `y`
+
+error[E0560]: struct `Point` has no field named `z`
+  --> $DIR/errors.vs:15:37
+   |
+15 |     let q = Point { x: 1.0, y: 2.0, z: 3.0 } //~ ERROR struct `Point` has no field named `z`
+   |                                     ^ unknown field
+
+error[E0609]: no field `z` on type `Point`
+  --> $DIR/errors.vs:16:15
+   |
+16 |     let d = p.z //~ ERROR no field `z` on type `Point`
+   |               ^ unknown field
+
+error[E0599]: no method named `Norm` found for struct `Point` in the current scope
+  --> $DIR/errors.vs:17:15
+   |
+17 |     let e = p.Norm() //~ ERROR no method named `Norm` found for struct `Point` in the current scope
+   |               ^^^^ method not found in `Point`
+
+error[E0618]: expected function, found `{integer}`
+  --> $DIR/errors.vs:18:13
+   |
+18 |     let f = 5() //~ ERROR expected function, found `{integer}`
+   |             ^ call expression requires function
+
+error[E0600]: cannot apply unary operator `!` to type `{float}`
+  --> $DIR/errors.vs:19:13
+   |
+19 |     let g = !3.5 //~ ERROR cannot apply unary operator `!` to type `{float}`
+   |             ^^^^
+
+error[E0614]: type `int64` cannot be dereferenced
+  --> $DIR/errors.vs:20:13
+   |
+20 |     let h = *a //~ ERROR type `int64` cannot be dereferenced
+   |             ^^
+
+error[E0308]: `if` and `else` have incompatible types
+  --> $DIR/errors.vs:21:32
+   |
+21 |     let i = if true { 1 } else { "no" } //~ ERROR `if` and `else` have incompatible types
+   |                                ^^^^^^^^ expected `{integer}`, found `&string`
+
+error[E0369]: binary operation `==` cannot be applied to type `Point`
+  --> $DIR/errors.vs:22:13
+   |
+22 |     let j = p == p //~ ERROR binary operation `==` cannot be applied to type `Point`
+   |             ^^^^^^
+   |
+   = note: operators on other types use the operator traits (`Add`, `PartialEq`, …), which come from the standard library; vsc-v2 can't build it yet
+
+error[E0070]: invalid left-hand side of assignment
+  --> $DIR/errors.vs:24:5
+   |
+24 |     3 = 4 //~ ERROR invalid left-hand side of assignment
+   |     ^ cannot assign to this expression
+
+error[E0054]: cannot cast `int32` as `bool`
+  --> $DIR/errors.vs:23:13
+   |
+23 |     let k = 1 as bool //~ ERROR cannot cast `int32` as `bool`
+   |             ^^^^^^^^^
+   |
+   = help: compare with zero instead: `x != 0`
+
+error[E0069]: `return` without a value in a function whose return type is not `()`
+  --> $DIR/errors.vs:28:5
+   |
+28 |     return //~ ERROR `return` without a value in a function whose return type is not `()`
+   |     ^^^^^^ return type is `int64`
+
+error[E0277]: the trait bound `{integer}: Named` is not satisfied
+  --> $DIR/errors.vs:36:5
+   |
+36 |     named(&5) //~ ERROR the trait bound `{integer}: Named` is not satisfied
+   |     ^^^^^ the trait `Named` is not implemented for `{integer}`
+
+error[E0282]: type annotations needed
+  --> $DIR/errors.vs:40:5
+   |
+40 |     let v = vec[] //~ ERROR type annotations needed
+   |     ^^^^^^^^^^^^^ cannot infer the type: `Vec<_>`
+
+error: aborting due to 17 previous errors
+

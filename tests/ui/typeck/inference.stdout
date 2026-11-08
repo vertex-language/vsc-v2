@@ -1,0 +1,49 @@
+Task.New
+    id: int64
+Task.IsOpen
+    self: &Task
+Task.Close
+    t: &mut Task
+sum
+    xs: &[int64]
+    total: int64
+    iter: SliceIter<int64>
+    x: &int64
+next
+    v: Option<int64>
+    val: int64
+    residual: Option<Infallible>
+    x: int64
+main
+    New -> Task.New: func(int64) -> Task {Task.New}
+    t: Task
+    .IsOpen() -> Task.IsOpen
+    open: bool
+    .Close() -> Task.Close
+    .Len() -> Vec.Len
+    n: uint
+    c: int64
+    code: int64
+    xs: [int64; 3]
+    total: int64
+    ratio: float64
+    small: uint8
+    pair: (bool, uint)
+    doubled: Vec<int32>
+    iter: Range<int32>
+    i: int32
+    k: int32
+    NewV1 -> FormatArguments.NewV1: func(&[&string], &[FormatArgument]) -> FormatArguments {FormatArguments.NewV1}
+    NewDisplay -> FormatArgument.NewDisplay: func(&int64) -> FormatArgument {FormatArgument.NewDisplay}
+    NewDisplay -> FormatArgument.NewDisplay: func(&int64) -> FormatArgument {FormatArgument.NewDisplay}
+    NewDebug -> FormatArgument.NewDebug: func(&(bool, uint)) -> FormatArgument {FormatArgument.NewDebug}
+    NewV1Formatted -> FormatArguments.NewV1Formatted: func(&[&string], &[FormatArgument], &[FormatPlaceholder]) -> FormatArguments {FormatArguments.NewV1Formatted}
+    NewDisplay -> FormatArgument.NewDisplay: func(&int64) -> FormatArgument {FormatArgument.NewDisplay}
+    New -> FormatPlaceholder.New: func(uint, char, FormatAlignment, uint32, FormatCount, FormatCount) -> FormatPlaceholder {FormatPlaceholder.New}
+    Right -> FormatAlignment.Right: FormatAlignment
+    Implied -> FormatCount.Implied: FormatCount
+    Is -> FormatCount.Is: func(uint) -> FormatCount {FormatCount.Is}
+    msg: string
+    leftVal: &int64
+    rightVal: &int64
+    Eq -> AssertKind.Eq: AssertKind

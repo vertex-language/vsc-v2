@@ -1,0 +1,27 @@
+fn main(a: int64, b: int64, ok: bool) {
+    #[lang = "print"](#[lang = "formatArguments"]::NewConst(&["\n"]));
+    #[lang = "print"](#[lang = "formatArguments"]::NewConst(&["plain"]));
+    #[lang = "print"](#[lang = "formatArguments"]::NewV1(&["", " and ", "\n"], &[#[lang = "formatArgument"]::NewDisplay(&a), #[lang = "formatArgument"]::NewDebug(&b)]));
+    #[lang = "print"](#[lang = "formatArguments"]::NewV1(&["", " before ", "\n"], &[#[lang = "formatArgument"]::NewDisplay(&b), #[lang = "formatArgument"]::NewDisplay(&a)]));
+    #[lang = "print"](#[lang = "formatArguments"]::NewV1Formatted(&["", " twice ", "\n"], &[#[lang = "formatArgument"]::NewDisplay(&a)], &[#[lang = "formatPlaceholder"]::New(0, ' ', #[lang = "formatAlignment"]::Unknown, 0, #[lang = "formatCount"]::Implied, #[lang = "formatCount"]::Implied), #[lang = "formatPlaceholder"]::New(0, ' ', #[lang = "formatAlignment"]::Unknown, 0, #[lang = "formatCount"]::Implied, #[lang = "formatCount"]::Implied)]));
+    #[lang = "eprint"](#[lang = "formatArguments"]::NewV1Formatted(&["", "\n"], &[#[lang = "formatArgument"]::NewDisplay(&a)], &[#[lang = "formatPlaceholder"]::New(0, ' ', #[lang = "formatAlignment"]::Right, 0, #[lang = "formatCount"]::Is(3), #[lang = "formatCount"]::Is(8))]));
+    let s = #[lang = "format"](#[lang = "formatArguments"]::NewV1Formatted(&["", "-"], &match (&a,) {
+        args => [#[lang = "formatArgument"]::NewLowerHex(args.0), #[lang = "formatArgument"]::NewBinary(args.0)],
+    }, &[#[lang = "formatPlaceholder"]::New(0, ' ', #[lang = "formatAlignment"]::Unknown, 0, #[lang = "formatCount"]::Implied, #[lang = "formatCount"]::Implied), #[lang = "formatPlaceholder"]::New(1, ' ', #[lang = "formatAlignment"]::Unknown, 4, #[lang = "formatCount"]::Implied, #[lang = "formatCount"]::Implied)]));
+    #[lang = "panicFmt"](#[lang = "formatArguments"]::NewConst(&["explicit panic"]));
+    #[lang = "panicFmt"](#[lang = "formatArguments"]::NewV1(&["bad "], &[#[lang = "formatArgument"]::NewDisplay(&a)]));
+    #[lang = "panicFmt"](#[lang = "formatArguments"]::NewConst(&["not yet implemented"]));
+    #[lang = "panicFmt"](#[lang = "formatArguments"]::NewV1(&["internal error: entered unreachable code: "], &[#[lang = "formatArgument"]::NewDisplay(&#[lang = "formatArguments"]::NewV1(&["state "], &[#[lang = "formatArgument"]::NewDisplay(&b)]))]));
+    if drop_temps!(!ok) {
+        #[lang = "panicFmt"](#[lang = "formatArguments"]::NewConst(&["assertion failed: ok"]))
+    };
+    if drop_temps!(!ok) {
+        #[lang = "panicFmt"](#[lang = "formatArguments"]::NewV1(&["not ok: "], &[#[lang = "formatArgument"]::NewDisplay(&a)]))
+    };
+    match (&a, &b) {
+        (leftVal, rightVal) => if drop_temps!(!(*leftVal == *rightVal)) {
+            #[lang = "assertFailed"](#[lang = "assertKind"]::Eq, &*leftVal, &*rightVal, #[lang = "None"])
+        },
+    }
+}
+

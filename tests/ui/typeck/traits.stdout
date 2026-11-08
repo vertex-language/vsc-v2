@@ -1,0 +1,21 @@
+Shape.Twice
+    self: &Self
+    .Area() -> Shape.Area
+Square.Area
+    self: &Square
+Square.Unit
+    self: &Square
+area
+    s: &T
+    .Area() -> Shape.Area
+unit
+    s: &T
+    .Unit() -> Shape.Unit
+main
+    sq: Square
+    a: float64
+    u: float64
+    .Unit() -> Shape.Unit
+    direct: float64
+    .Twice() -> Shape.Twice
+    t: float64

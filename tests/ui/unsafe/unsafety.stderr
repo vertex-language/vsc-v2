@@ -1,0 +1,67 @@
+error[E0133]: call to unsafe function `danger` is unsafe and requires unsafe block
+  --> $DIR/unsafety.vs:18:5
+   |
+18 |     danger() //~ ERROR call to unsafe function `danger` is unsafe and requires unsafe block
+   |     ^^^^^^^^ call to unsafe function `danger`
+   |
+   = note: consult the function's documentation for information on how to avoid undefined behavior
+
+error[E0133]: use of mutable static is unsafe and requires unsafe block
+  --> $DIR/unsafety.vs:19:5
+   |
+19 |     Counter += 1 //~ ERROR use of mutable static is unsafe and requires unsafe block
+   |     ^^^^^^^ use of mutable static
+   |
+   = note: mutable statics can be mutated by multiple threads: aliasing violations or data races will cause undefined behavior
+
+error[E0133]: call to unsafe function `abs` is unsafe and requires unsafe block
+  --> $DIR/unsafety.vs:20:13
+   |
+20 |     let a = abs(-3) //~ ERROR call to unsafe function `abs` is unsafe and requires unsafe block
+   |             ^^^^^^^ call to unsafe function `abs`
+   |
+   = note: consult the function's documentation for information on how to avoid undefined behavior
+
+error[E0133]: use of extern static is unsafe and requires unsafe block
+  --> $DIR/unsafety.vs:21:13
+   |
+21 |     let e = errno //~ ERROR use of extern static is unsafe and requires unsafe block
+   |             ^^^^^ use of extern static
+   |
+   = note: extern statics are not controlled by the type system: invalid data, aliasing violations or data races will cause undefined behavior
+
+error[E0133]: dereference of raw pointer is unsafe and requires unsafe block
+  --> $DIR/unsafety.vs:22:13
+   |
+22 |     let x = *p //~ ERROR dereference of raw pointer is unsafe and requires unsafe block
+   |             ^^ dereference of raw pointer
+   |
+   = note: raw pointers may be null, dangling or unaligned; they can violate aliasing rules and cause data races: all of these are undefined behavior
+
+error[E0133]: access to union field is unsafe and requires unsafe block
+  --> $DIR/unsafety.vs:23:13
+   |
+23 |     let i = b.i //~ ERROR access to union field is unsafe and requires unsafe block
+   |             ^^^ access to union field
+   |
+   = note: the field may not be properly initialized: using uninitialized data will cause undefined behavior
+
+error[E0133]: call to unsafe function `danger` is unsafe and requires unsafe block
+  --> $DIR/unsafety.vs:30:22
+   |
+30 |     let h = func() { danger() } //~ ERROR call to unsafe function `danger` is unsafe and requires unsafe block
+   |                      ^^^^^^^^ call to unsafe function `danger`
+   |
+   = note: consult the function's documentation for information on how to avoid undefined behavior
+
+warning[E0133]: dereference of raw pointer is unsafe and requires unsafe block
+  --> $DIR/unsafety.vs:35:5
+   |
+35 |     *p //~ WARN dereference of raw pointer is unsafe and requires unsafe block
+   |     ^^ dereference of raw pointer
+   |
+   = note: raw pointers may be null, dangling or unaligned; they can violate aliasing rules and cause data races: all of these are undefined behavior
+   = note: an unsafe function restricts its callers, but its body is safe by default
+
+error: aborting due to 7 previous errors; 1 warning emitted
+

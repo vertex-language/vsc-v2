@@ -1,0 +1,65 @@
+error[E0004]: non-exhaustive patterns: `&Shape.Rect { .. }` not covered
+ --> $DIR/non-exhaustive.vs:9:11
+  |
+9 |     match s { //~ ERROR non-exhaustive patterns: `&Shape.Rect { .. }` not covered
+  |           ^ pattern `&Shape.Rect { .. }` not covered
+  |
+  = note: the matched value is of type `&Shape`
+  = help: ensure that all possible cases are being handled by adding a match arm for each value shown, or a wildcard arm `_ => …`
+
+error[E0004]: non-exhaustive patterns: `201..=uint8.MAX` not covered
+  --> $DIR/non-exhaustive.vs:13:11
+   |
+13 |     match n { //~ ERROR non-exhaustive patterns: `201..=uint8.MAX` not covered
+   |           ^ pattern `201..=uint8.MAX` not covered
+   |
+   = note: the matched value is of type `uint8`
+   = help: ensure that all possible cases are being handled by adding a match arm for each value shown, or a wildcard arm `_ => …`
+
+error[E0004]: non-exhaustive patterns: `int8.MIN..=-1` not covered
+  --> $DIR/non-exhaustive.vs:17:11
+   |
+17 |     match i { //~ ERROR non-exhaustive patterns: `int8.MIN..=-1` not covered
+   |           ^ pattern `int8.MIN..=-1` not covered
+   |
+   = note: the matched value is of type `int8`
+   = help: ensure that all possible cases are being handled by adding a match arm for each value shown, or a wildcard arm `_ => …`
+
+error[E0004]: non-exhaustive patterns: `(true, true)` not covered
+  --> $DIR/non-exhaustive.vs:21:11
+   |
+21 |     match t { //~ ERROR non-exhaustive patterns: `(true, true)` not covered
+   |           ^ pattern `(true, true)` not covered
+   |
+   = note: the matched value is of type `(bool, bool)`
+   = help: ensure that all possible cases are being handled by adding a match arm for each value shown, or a wildcard arm `_ => …`
+
+error[E0004]: non-exhaustive patterns: `Option.Some(Option.None)` not covered
+  --> $DIR/non-exhaustive.vs:25:11
+   |
+25 |     match o { //~ ERROR non-exhaustive patterns: `Option.Some(Option.None)` not covered
+   |           ^ pattern `Option.Some(Option.None)` not covered
+   |
+   = note: the matched value is of type `Option<Option<int32>>`
+   = help: ensure that all possible cases are being handled by adding a match arm for each value shown, or a wildcard arm `_ => …`
+
+error[E0004]: non-exhaustive patterns: `&[_, _, ..]` not covered
+  --> $DIR/non-exhaustive.vs:29:11
+   |
+29 |     match xs { //~ ERROR non-exhaustive patterns: `&[_, _, ..]` not covered
+   |           ^^ pattern `&[_, _, ..]` not covered
+   |
+   = note: the matched value is of type `&[int64]`
+   = help: ensure that all possible cases are being handled by adding a match arm for each value shown, or a wildcard arm `_ => …`
+
+error[E0004]: non-exhaustive patterns: `uint8.MAX` not covered
+  --> $DIR/non-exhaustive.vs:33:11
+   |
+33 |     match g { //~ ERROR non-exhaustive patterns: `uint8.MAX` not covered
+   |           ^ pattern `uint8.MAX` not covered
+   |
+   = note: the matched value is of type `uint8`
+   = help: ensure that all possible cases are being handled by adding a match arm for each value shown, or a wildcard arm `_ => …`
+
+error: aborting due to 7 previous errors
+

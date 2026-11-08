@@ -1,0 +1,18 @@
+[package]
+name = "vsc_resolve"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vsc_ast.workspace = true
+vsc_data_structures.workspace = true
+vsc_errors.workspace = true
+vsc_hir.workspace = true
+vsc_index.workspace = true
+vsc_session.workspace = true
+vsc_span.workspace = true
+
+[dev-dependencies]
+vsc_expand.workspace = true

@@ -1,0 +1,32 @@
+error[E0268]: `break` outside of a loop or labeled block
+ --> $DIR/loops.vs:6:5
+  |
+6 |     break //~ ERROR `break` outside of a loop or labeled block
+  |     ^^^^^ cannot `break` outside of a loop or labeled block
+
+error[E0268]: `continue` outside of a loop
+ --> $DIR/loops.vs:7:5
+  |
+7 |     continue //~ ERROR `continue` outside of a loop
+  |     ^^^^^^^^ cannot `continue` outside of a loop
+
+error[E0267]: `break` inside of a function literal
+ --> $DIR/loops.vs:9:26
+  |
+9 |         let f = func() { break } //~ ERROR `break` inside of a function literal
+  |                          ^^^^^ cannot `break` inside of a function literal
+
+error[E0571]: `break` with value from a `while` loop
+  --> $DIR/loops.vs:12:9
+   |
+12 |         break 1 //~ ERROR `break` with value from a `while` loop
+   |         ^^^^^^^ can only break with a value inside `loop` or breakable block
+
+error[E0696]: `continue` pointing to a labeled block
+  --> $DIR/loops.vs:15:16
+   |
+15 |         loop { continue 'b } //~ ERROR `continue` pointing to a labeled block
+   |                ^^^^^^^^^^^ labeled blocks cannot be `continue`d
+
+error: aborting due to 5 previous errors
+

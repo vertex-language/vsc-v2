@@ -1,0 +1,33 @@
+error[E0522]: definition of an unknown lang item: `Strng`
+ --> $DIR/lang-items.vs:8:1
+  |
+8 | @lang("Strng") //~ ERROR definition of an unknown lang item: `Strng`
+  | ^^^^^^^^^^^^^^
+
+error[E0718]: `Class` lang item must be applied to a struct
+  --> $DIR/lang-items.vs:11:1
+   |
+11 | @lang("Class") //~ ERROR `Class` lang item must be applied to a struct
+   | ^^^^^^^^^^^^^^ attribute should be applied to a struct, not a function
+
+error[E0152]: found duplicate lang item `Func`
+  --> $DIR/lang-items.vs:17:1
+   |
+17 | @lang("Func") //~ ERROR found duplicate lang item `Func`
+   | ^^^^^^^^^^^^^
+note: the lang item is first defined here
+  --> $DIR/lang-items.vs:14:1
+   |
+14 | @lang("Func")
+   | ^^^^^^^^^^^^^
+
+error: requires the `String` lang item
+ --> $DIR/lang-items.vs:6:11
+  |
+6 | func f(s: string) {} //~ ERROR requires the `String` lang item
+  |           ^^^^^^
+  |
+  = note: the standard library defines it; until vsc-v2 can build `library/`, a crate can define it with `@lang("String")` on a struct
+
+error: aborting due to 4 previous errors
+

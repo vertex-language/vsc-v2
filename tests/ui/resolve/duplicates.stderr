@@ -1,0 +1,30 @@
+error[E0428]: the name `f` is defined multiple times
+ --> $DIR/duplicates.vs:2:6
+  |
+1 | func f() {}
+  |      - previous definition of the function `f` here
+2 | func f() {} //~ ERROR the name `f` is defined multiple times
+  |      ^ `f` redefined here
+  |
+  = note: `f` must be defined only once in the value namespace of this package
+
+error[E0428]: the name `S` is defined multiple times
+ --> $DIR/duplicates.vs:4:6
+  |
+3 | struct S
+  |        - previous definition of the struct `S` here
+4 | enum S { A } //~ ERROR the name `S` is defined multiple times
+  |      ^ `S` redefined here
+  |
+  = note: `S` must be defined only once in the type namespace of this package
+
+error: `println` is a built-in name and can't be declared
+ --> $DIR/duplicates.vs:5:6
+  |
+5 | func println() {} //~ ERROR `println` is a built-in name and can't be declared
+  |      ^^^^^^^ built-in name
+  |
+  = note: built-in names are reserved
+
+error: aborting due to 3 previous errors
+

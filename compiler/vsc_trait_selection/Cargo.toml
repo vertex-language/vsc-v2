@@ -1,0 +1,12 @@
+[package]
+name = "vsc_trait_selection"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vsc_hir.workspace = true
+vsc_infer.workspace = true
+vsc_middle.workspace = true
+vsc_span.workspace = true

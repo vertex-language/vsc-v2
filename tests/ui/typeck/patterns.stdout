@@ -1,0 +1,17 @@
+area
+    s: &Shape
+    r: &float64
+    w: &float64
+    h: &float64
+parts
+    t: (int64, (bool, char))
+    xs: &[int64]
+    n: int64
+    flag: bool
+    ch: char
+    first: int32
+    last: int32
+    one: &int64
+    head: &int64
+    rest: &[int64]
+    v: int64

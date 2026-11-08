@@ -1,0 +1,68 @@
+error[E0107]: struct takes 2 generic arguments but 1 generic argument was supplied
+ --> $DIR/item-errors.vs:7:17
+  |
+7 | func one(p: Pair<int64>) {} //~ ERROR struct takes 2 generic arguments but 1 generic argument was supplied
+  |                 ^^^^^^^
+
+error[E0107]: missing generics for struct `Pair`
+ --> $DIR/item-errors.vs:8:14
+  |
+8 | func none(p: Pair) {} //~ ERROR missing generics for struct `Pair`
+  |              ^^^^
+  |
+  = help: add the missing generic arguments: `Pair<T, U>`
+
+error[E0121]: the placeholder `_` is not allowed within types on item signatures
+ --> $DIR/item-errors.vs:9:15
+  |
+9 | func infer(x: _) {} //~ ERROR the placeholder `_` is not allowed within types on item signatures
+  |               ^ not allowed in type signatures
+
+error[E0220]: associated type `Item` not found for `T`
+  --> $DIR/item-errors.vs:10:22
+   |
+10 | func generic<T>(x: T.Item) {} //~ ERROR associated type `Item` not found for `T`
+   |                      ^^^^ associated type `Item` not found
+
+error[E0391]: cycle detected when computing the type of `Loop`
+  --> $DIR/item-errors.vs:12:1
+   |
+12 | type Loop = Loop2 //~ ERROR cycle detected when computing the type of `Loop`
+   | ^^^^^^^^^^^^^^^^^
+
+error[E0407]: method `Perimeter` is not a member of trait `Shape`
+  --> $DIR/item-errors.vs:23:5
+   |
+23 |     func Perimeter(&self) -> float64 { 0.0 } //~ ERROR method `Perimeter` is not a member of trait `Shape`
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not a member of trait `Shape`
+
+error[E0046]: not all trait items implemented, missing: `Area`
+  --> $DIR/item-errors.vs:22:1
+   |
+22 | implement Shape for Circle { //~ ERROR not all trait items implemented, missing: `Area`
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+23 |     func Perimeter(&self) -> float64 { 0.0 } //~ ERROR method `Perimeter` is not a member of trait `Shape`
+24 | }
+   | ^ missing `Area` in implementation
+
+error[E0390]: cannot define inherent methods for `int64`
+  --> $DIR/item-errors.vs:31:1
+   |
+31 | func (x: int64) Double() -> int64 { x * 2 } //~ ERROR cannot define inherent methods for `int64`
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not a struct, enum, union or class of this crate
+   |
+   = help: define a trait with the methods and implement it for the type
+
+error[E0592]: duplicate definitions with name `Id`
+  --> $DIR/item-errors.vs:29:1
+   |
+29 | func (t: &Task) Id() -> int64 { 0 } //~ ERROR duplicate definitions with name `Id`
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ duplicate definitions for `Id`
+note: other definition for `Id`
+  --> $DIR/item-errors.vs:28:1
+   |
+28 | func (t: &Task) Id() -> int64 { t.id }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: aborting due to 9 previous errors
+

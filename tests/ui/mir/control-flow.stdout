@@ -1,0 +1,143 @@
+fn pick(_1: bool, _2: bool) -> int32 {
+    debug a => _1;
+    debug b => _2;
+    let mut _0: int32;
+
+    bb0: {
+        switchInt(_1) -> [0: bb2, otherwise: bb1];
+    }
+
+    bb1: {
+        switchInt(_2) -> [0: bb4, otherwise: bb3];
+    }
+
+    bb2: {
+        goto -> bb5;
+    }
+
+    bb3: {
+        _0 = const 1_int32;
+        goto -> bb9;
+    }
+
+    bb4: {
+        goto -> bb5;
+    }
+
+    bb5: {
+        switchInt(_1) -> [0: bb7, otherwise: bb6];
+    }
+
+    bb6: {
+        _0 = const 2_int32;
+        goto -> bb8;
+    }
+
+    bb7: {
+        _0 = const 3_int32;
+        goto -> bb8;
+    }
+
+    bb8: {
+        goto -> bb9;
+    }
+
+    bb9: {
+        return;
+    }
+}
+
+fn first(_1: uint) -> uint {
+    debug n => _1;
+    debug i => _2;
+    debug found => _3;
+    let mut _0: uint;
+    let mut _2: uint;
+    let _3: uint;
+    let mut _4: ();
+    let mut _5: ();
+    let mut _6: bool;
+    let mut _7: never;
+    let mut _8: (uint, bool);
+
+    bb0: {
+        _2 = const 0_uint;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _6 = Eq(_2, _1);
+        switchInt(move _6) -> [0: bb4, otherwise: bb3];
+    }
+
+    bb2: {
+        _0 = _3;
+        return;
+    }
+
+    bb3: {
+        _3 = _2;
+        goto -> bb2;
+    }
+
+    bb4: {
+        _5 = const ();
+        goto -> bb7;
+    }
+
+    bb5: {
+        unreachable;
+    }
+
+    bb6: {
+        goto -> bb7;
+    }
+
+    bb7: {
+        _8 = AddWithOverflow(_2, const 1_uint);
+        assert(!move (_8.1: bool), "attempt to compute `{} Add {}`, which would overflow", _2, const 1_uint) -> bb8;
+    }
+
+    bb8: {
+        _2 = move (_8.0: uint);
+        _4 = const ();
+        goto -> bb1;
+    }
+}
+
+fn early(_1: int32) -> int32 {
+    debug x => _1;
+    let mut _0: int32;
+    let mut _2: ();
+    let mut _3: bool;
+    let mut _4: never;
+
+    bb0: {
+        _3 = Lt(_1, const 0_int32);
+        switchInt(move _3) -> [0: bb2, otherwise: bb1];
+    }
+
+    bb1: {
+        _0 = const 0_int32;
+        return;
+    }
+
+    bb2: {
+        _2 = const ();
+        goto -> bb5;
+    }
+
+    bb3: {
+        unreachable;
+    }
+
+    bb4: {
+        goto -> bb5;
+    }
+
+    bb5: {
+        _0 = _1;
+        return;
+    }
+}
+

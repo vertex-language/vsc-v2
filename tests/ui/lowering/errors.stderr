@@ -1,0 +1,16 @@
+error: `..` can only be used once per tuple pattern
+ --> $DIR/errors.vs:7:20
+  |
+7 |     let (a, .., b, ..) = t //~ ERROR `..` can only be used once per tuple pattern
+  |             --     ^^ can only be used once per pattern
+  |             |
+  |             previously used here
+
+error: in expressions, `_` can only be used on the left-hand side of an assignment
+ --> $DIR/errors.vs:8:13
+  |
+8 |     let x = _ //~ ERROR in expressions, `_` can only be used on the left-hand side of an assignment
+  |             ^ `_` not allowed here
+
+error: aborting due to 2 previous errors
+

@@ -1,0 +1,16 @@
+error[E0463]: can't find crate for `std`
+ --> $DIR/std-imports.vs:4:5
+  |
+4 |     "std/fs" //~ ERROR can't find crate for `std`
+  |     ^^^^^^^^ can't find crate
+  |
+  = note: vsc-v2 can't build the standard library yet, so only this crate's own packages can be imported
+
+error[E0432]: unresolved import `./missing`
+ --> $DIR/std-imports.vs:6:5
+  |
+6 |     "./missing" //~ ERROR unresolved import `./missing`
+  |     ^^^^^^^^^^^ no package `missing` in `test`
+
+error: aborting due to 2 previous errors
+

@@ -1,0 +1,8 @@
+[package]
+name = "vsc_data_structures"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]

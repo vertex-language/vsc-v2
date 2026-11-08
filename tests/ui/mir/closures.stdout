@@ -1,0 +1,61 @@
+fn make() -> Counter {
+    let mut _0: Counter;
+    let mut _1: Counter;
+
+    bb0: {
+        _1 = Counter { value: const 0_int64 };
+        _0 = ClassNew(move _1);
+        return;
+    }
+}
+
+fn capture(_1: int64) -> int64 {
+    debug x => _1;
+    debug total => _2;
+    debug add => _3;
+    let mut _0: int64;
+    let mut _2: int64;
+    let _3: {function literal};
+    let mut _4: &mut int64;
+    let mut _5: &int64;
+    let mut _6: ();
+
+    bb0: {
+        _2 = const 0_int64;
+        _4 = &mut _2;
+        _5 = &_1;
+        _3 = capture.{function literal}(move _4, move _5);
+        _6 = _3(const 1_int64) -> bb1;
+    }
+
+    bb1: {
+        _0 = _2;
+        return;
+    }
+}
+
+fn capture.{function literal}(_1: &{function literal}, _2: int64) -> () {
+    debug n => _2;
+    let mut _0: ();
+    let mut _3: int64;
+    let mut _4: (int64, bool);
+    let mut _5: (int64, bool);
+
+    bb0: {
+        _4 = AddWithOverflow(_2, (*((*_1).1: &int64)));
+        assert(!move (_4.1: bool), "attempt to compute `{} Add {}`, which would overflow", _2, (*((*_1).1: &int64))) -> bb1;
+    }
+
+    bb1: {
+        _3 = move (_4.0: int64);
+        _5 = AddWithOverflow((*((*_1).0: &mut int64)), move _3);
+        assert(!move (_5.1: bool), "attempt to compute `{} Add {}`, which would overflow", (*((*_1).0: &mut int64)), _3) -> bb2;
+    }
+
+    bb2: {
+        (*((*_1).0: &mut int64)) = move (_5.0: int64);
+        _0 = const ();
+        return;
+    }
+}
+
