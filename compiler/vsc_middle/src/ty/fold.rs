@@ -152,6 +152,29 @@ impl<'tcx> TyCtxt<'tcx> {
         }
     }
 
+    pub fn instantiate_args(self, args: GenericArgsRef<'tcx>, with: &[GenericArg<'tcx>]) -> GenericArgsRef<'tcx> {
+        if with.is_empty() {
+            return args;
+        }
+        fold_args(&mut ArgFolder { tcx: self, args: with }, args)
+    }
+
+    pub fn instantiate_const(self, c: Const<'tcx>, with: &[GenericArg<'tcx>]) -> Const<'tcx> {
+        ArgFolder { tcx: self, args: with }.fold_const(c)
+    }
+
+    pub fn erase_regions_args(self, args: GenericArgsRef<'tcx>) -> GenericArgsRef<'tcx> {
+        let v: Vec<_> = args
+            .iter()
+            .map(|a| match *a {
+                GenericArg::Type(t) => GenericArg::Type(self.erase_regions(t)),
+                GenericArg::Region(_) => GenericArg::Region(self.regions.re_erased),
+                c => c,
+            })
+            .collect();
+        self.mk_args(&v)
+    }
+
     /// `ty` with every region erased: type checking doesn't look at them
     /// (borrow checking does).
     pub fn erase_regions(self, ty: Ty<'tcx>) -> Ty<'tcx> {

@@ -1,0 +1,29 @@
+[package]
+name = "vsc_const_eval"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vsc_ast.workspace = true
+vsc_ast_pretty.workspace = true
+vsc_data_structures.workspace = true
+vsc_errors.workspace = true
+vsc_hir.workspace = true
+vsc_index.workspace = true
+vsc_infer.workspace = true
+vsc_lexer.workspace = true
+vsc_middle.workspace = true
+vsc_mir_build.workspace = true
+vsc_span.workspace = true
+vsc_trait_selection.workspace = true
+
+[dev-dependencies]
+vsc_ast_lowering.workspace = true
+vsc_expand.workspace = true
+vsc_hir_analysis.workspace = true
+vsc_hir_typeck.workspace = true
+vsc_passes.workspace = true
+vsc_resolve.workspace = true
+vsc_session.workspace = true

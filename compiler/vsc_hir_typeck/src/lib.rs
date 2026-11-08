@@ -118,6 +118,10 @@ pub struct FnCtxt<'a, 'tcx> {
     /// Casts, checked once types are known.
     deferred_casts: RefCell<Vec<(Span, Ty<'tcx>, Ty<'tcx>)>>,
     tainted: Cell<bool>,
+    /// Integer literals, to check they fit their type once it's known
+    /// (rustc's `overflowing_literals`, an error by default): span, value,
+    /// negated, type.
+    pub(crate) int_literals: RefCell<Vec<(Span, u128, bool, Ty<'tcx>)>>,
     /// The session's error count when checking started: any error since
     /// (a missing lang item, say) taints the body too.
     errors_at_start: usize,
@@ -155,6 +159,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
             diverges: Cell::new(false),
             deferred_casts: RefCell::new(Vec::new()),
             tainted: Cell::new(false),
+            int_literals: RefCell::new(Vec::new()),
             errors_at_start: tcx.dcx().err_count(),
         }
     }
@@ -448,6 +453,9 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         self.report_fulfillment_errors(errors);
         for (span, from, to) in std::mem::take(&mut *self.deferred_casts.borrow_mut()) {
             self.check_cast(span, from, to);
+        }
+        for (span, value, negated, ty) in std::mem::take(&mut *self.int_literals.borrow_mut()) {
+            self.check_int_literal(span, value, negated, ty);
         }
 
         let mut reported = self.is_tainted();

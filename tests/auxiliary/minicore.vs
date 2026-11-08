@@ -49,7 +49,7 @@ public struct RangeInclusive<T> { start: T; end: T }
 
 implement<T> RangeInclusive<T> {
     @lang("rangeInclusiveNew")
-    public func New(start: T, end: T) -> RangeInclusive<T> { RangeInclusive { start, end } }
+    public func new(start: T, end: T) -> RangeInclusive<T> { RangeInclusive { start, end } }
 }
 
 // Iteration.
@@ -57,26 +57,26 @@ implement<T> RangeInclusive<T> {
 public trait Iterator {
     type Item
     @lang("next")
-    func Next(&mut self) -> Option<Self.Item>
+    func next(&mut self) -> Option<Self.Item>
 }
 
 public trait IntoIterator {
     type Item
     type IntoIter
     @lang("intoIter")
-    func IntoIter(self) -> Self.IntoIter
+    func intoIter(self) -> Self.IntoIter
 }
 
 implement<I: Iterator> IntoIterator for I {
     type Item = I.Item
     type IntoIter = I
-    func IntoIter(self) -> I { self }
+    func intoIter(self) -> I { self }
 }
 
 implement<T> Iterator for Range<T> {
     type Item = T
     @intrinsic("range_next")
-    func Next(&mut self) -> Option<T> { loop {} }
+    func next(&mut self) -> Option<T> { loop {} }
 }
 
 @intrinsic("slice_len")
@@ -86,7 +86,7 @@ public struct SliceIter<a: Origin, T> { s: &[a] [T]; i: uint }
 
 implement<a: Origin, T> Iterator for SliceIter<a, T> {
     type Item = &[a] T
-    func Next(&mut self) -> Option<&[a] T> {
+    func next(&mut self) -> Option<&[a] T> {
         if self.i < sliceLen(self.s) {
             let x = &self.s[self.i]
             self.i += 1
@@ -97,10 +97,16 @@ implement<a: Origin, T> Iterator for SliceIter<a, T> {
     }
 }
 
+implement<a, T, const N: uint> IntoIterator for &a [T; N] {
+    type Item = &a T
+    type IntoIter = SliceIter<a, T>
+    func intoIter(self) -> SliceIter<a, T> { SliceIter { s: self, i: 0 } }
+}
+
 implement<a: Origin, T> IntoIterator for &[a] [T] {
     type Item = &[a] T
     type IntoIter = SliceIter<a, T>
-    func IntoIter(self) -> SliceIter<a, T> { SliceIter { s: self, i: 0 } }
+    func intoIter(self) -> SliceIter<a, T> { SliceIter { s: self, i: 0 } }
 }
 
 // `?`
@@ -112,20 +118,20 @@ public enum ControlFlow<B, C> {
 
 public trait FromResidual<R> {
     @lang("fromResidual")
-    func FromResidual(residual: R) -> Self
+    func fromResidual(residual: R) -> Self
 }
 
 public trait Try {
     type Output
     type Residual
     @lang("branch")
-    func Branch(self) -> ControlFlow<Self.Residual, Self.Output>
+    func branch(self) -> ControlFlow<Self.Residual, Self.Output>
 }
 
 implement<T> Try for Option<T> {
     type Output = T
     type Residual = Option<Infallible>
-    func Branch(self) -> ControlFlow<Option<Infallible>, T> {
+    func branch(self) -> ControlFlow<Option<Infallible>, T> {
         match self {
             Option.Some(v) => ControlFlow.Continue(v)
             Option.None => ControlFlow.Break(Option.None)
@@ -134,7 +140,7 @@ implement<T> Try for Option<T> {
 }
 
 implement<T> FromResidual<Option<Infallible>> for Option<T> {
-    func FromResidual(residual: Option<Infallible>) -> Option<T> { Option.None }
+    func fromResidual(residual: Option<Infallible>) -> Option<T> { Option.None }
 }
 
 // `vec[…]`
@@ -143,11 +149,11 @@ public struct Vec<T> { ptr: *mut T; len: uint }
 
 implement<T> Vec<T> {
     @intrinsic("vec_len")
-    public func Len(&self) -> uint { loop {} }
+    public func len(&self) -> uint { loop {} }
     @intrinsic("vec_push")
-    public func Push(&mut self, value: T) {}
+    public func push(&mut self, value: T) {}
     @intrinsic("vec_pop")
-    public func Pop(&mut self) -> Option<T> { loop {} }
+    public func pop(&mut self) -> Option<T> { loop {} }
 }
 
 @lang("vecNew")
@@ -166,11 +172,11 @@ public struct FormatArguments { pieces: uint }
 
 implement FormatArguments {
     @intrinsic("format_new_const")
-    public func NewConst(pieces: &[&string]) -> FormatArguments { loop {} }
+    public func newConst(pieces: &[&string]) -> FormatArguments { loop {} }
     @intrinsic("format_new_v1")
-    public func NewV1(pieces: &[&string], args: &[FormatArgument]) -> FormatArguments { loop {} }
+    public func newV1(pieces: &[&string], args: &[FormatArgument]) -> FormatArguments { loop {} }
     @intrinsic("format_new_v1_formatted")
-    public func NewV1Formatted(pieces: &[&string], args: &[FormatArgument], placeholders: &[FormatPlaceholder]) -> FormatArguments { loop {} }
+    public func newV1Formatted(pieces: &[&string], args: &[FormatArgument], placeholders: &[FormatPlaceholder]) -> FormatArguments { loop {} }
 }
 
 @lang("formatArgument")
@@ -178,25 +184,25 @@ public struct FormatArgument { value: *const uint8 }
 
 implement FormatArgument {
     @intrinsic("format_arg_display")
-    public func NewDisplay<T>(x: &T) -> FormatArgument { loop {} }
+    public func newDisplay<T>(x: &T) -> FormatArgument { loop {} }
     @intrinsic("format_arg_debug")
-    public func NewDebug<T>(x: &T) -> FormatArgument { loop {} }
+    public func newDebug<T>(x: &T) -> FormatArgument { loop {} }
     @intrinsic("format_arg_lower_exp")
-    public func NewLowerExp<T>(x: &T) -> FormatArgument { loop {} }
+    public func newLowerExp<T>(x: &T) -> FormatArgument { loop {} }
     @intrinsic("format_arg_upper_exp")
-    public func NewUpperExp<T>(x: &T) -> FormatArgument { loop {} }
+    public func newUpperExp<T>(x: &T) -> FormatArgument { loop {} }
     @intrinsic("format_arg_octal")
-    public func NewOctal<T>(x: &T) -> FormatArgument { loop {} }
+    public func newOctal<T>(x: &T) -> FormatArgument { loop {} }
     @intrinsic("format_arg_pointer")
-    public func NewPointer<T>(x: &T) -> FormatArgument { loop {} }
+    public func newPointer<T>(x: &T) -> FormatArgument { loop {} }
     @intrinsic("format_arg_binary")
-    public func NewBinary<T>(x: &T) -> FormatArgument { loop {} }
+    public func newBinary<T>(x: &T) -> FormatArgument { loop {} }
     @intrinsic("format_arg_lower_hex")
-    public func NewLowerHex<T>(x: &T) -> FormatArgument { loop {} }
+    public func newLowerHex<T>(x: &T) -> FormatArgument { loop {} }
     @intrinsic("format_arg_upper_hex")
-    public func NewUpperHex<T>(x: &T) -> FormatArgument { loop {} }
+    public func newUpperHex<T>(x: &T) -> FormatArgument { loop {} }
     @intrinsic("format_arg_usize")
-    public func FromUsize(x: &uint) -> FormatArgument { loop {} }
+    public func fromUsize(x: &uint) -> FormatArgument { loop {} }
 }
 
 @lang("formatPlaceholder")
@@ -204,7 +210,7 @@ public struct FormatPlaceholder { position: uint }
 
 implement FormatPlaceholder {
     @intrinsic("format_placeholder_new")
-    public func New(position: uint, fill: char, align: FormatAlignment, flags: uint32, precision: FormatCount, width: FormatCount) -> FormatPlaceholder { loop {} }
+    public func new(position: uint, fill: char, align: FormatAlignment, flags: uint32, precision: FormatCount, width: FormatCount) -> FormatPlaceholder { loop {} }
 }
 
 @lang("formatCount")

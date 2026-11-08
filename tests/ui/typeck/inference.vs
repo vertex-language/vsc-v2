@@ -35,7 +35,7 @@ func main() {
     var t = Task.New(1)
     let open = t.IsOpen()
     t.Close()
-    let n = t.tags.Len()
+    let n = t.tags.len()
     let code = match Status.Done(3) {
         Status.Open => 0
         Status.Done(c) if c > 2 => c

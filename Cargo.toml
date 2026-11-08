@@ -22,6 +22,7 @@ vsc_ast = { path = "compiler/vsc_ast" }
 vsc_ast_lowering = { path = "compiler/vsc_ast_lowering" }
 vsc_ast_pretty = { path = "compiler/vsc_ast_pretty" }
 vsc_builtin_macros = { path = "compiler/vsc_builtin_macros" }
+vsc_const_eval = { path = "compiler/vsc_const_eval" }
 vsc_data_structures = { path = "compiler/vsc_data_structures" }
 vsc_driver_impl = { path = "compiler/vsc_driver_impl" }
 vsc_errors = { path = "compiler/vsc_errors" }

@@ -49,6 +49,8 @@ pub struct Options {
     pub dump_mir: bool,
     /// `-Z validate-mir`
     pub validate_mir: bool,
+    /// `-Z run-mir`
+    pub run_mir: bool,
     /// `--emit=metadata`: check only, as `cargo check` asks.
     pub check_only: bool,
     /// `--cfg` arguments.
@@ -88,6 +90,7 @@ Options:
     -Z dump-types           Print the types inferred in every body
     -Z dump-mir             Print every body's MIR
     -Z validate-mir         Check every body's MIR is well formed
+    -Z run-mir              Run `main` in the MIR interpreter
     -Z unpretty=ast         Print the parsed source as Vertex
     -Z unpretty=ast-tree    Print the parsed AST
     -Z unpretty=hir         Print the crate after lowering to HIR
@@ -107,6 +110,7 @@ pub fn parse(args: &[String]) -> Result<Parsed, String> {
     let mut dump_types = false;
     let mut dump_mir = false;
     let mut validate_mir = false;
+    let mut run_mir = false;
     let mut check_only = false;
     let mut cfgs = Vec::new();
     let mut test = false;
@@ -182,6 +186,7 @@ pub fn parse(args: &[String]) -> Result<Parsed, String> {
                     "dump-types" => dump_types = true,
                     "dump-mir" => dump_mir = true,
                     "validate-mir" => validate_mir = true,
+                    "run-mir" => run_mir = true,
                     "unpretty=ast" => unpretty = Some(Unpretty::Ast),
                     "unpretty=ast-tree" => unpretty = Some(Unpretty::AstTree),
                     "unpretty=hir" => unpretty = Some(Unpretty::Hir),
@@ -214,6 +219,7 @@ pub fn parse(args: &[String]) -> Result<Parsed, String> {
         dump_types,
         dump_mir,
         validate_mir,
+        run_mir,
         check_only,
         cfgs,
         test,

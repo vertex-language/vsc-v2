@@ -7,8 +7,8 @@
 //!
 //! ```text
 //! println("{} is {:?}", a, b)
-//! → print(FormatArguments.NewV1(&["", " is ", "\n"],
-//!       &[FormatArgument.NewDisplay(&a), FormatArgument.NewDebug(&b)]))
+//! → print(FormatArguments.newV1(&["", " is ", "\n"],
+//!       &[FormatArgument.newDisplay(&a), FormatArgument.newDebug(&b)]))
 //! ```
 //!
 //! When an argument is used more than once or out of order, the arguments
@@ -69,14 +69,14 @@ impl LoweringContext<'_> {
         let pieces = self.pieces_array(span, &[format!("{prefix}: ")]);
         let args = self.expr(span, hir::ExprKind::Array(vec![arg]));
         let args = self.expr_addr_of(span, args);
-        let f = self.expr_lang_item_type_relative(span, LangItem::FormatArguments, "NewV1");
+        let f = self.expr_lang_item_type_relative(span, LangItem::FormatArguments, "newV1");
         self.expr_call(span, f, vec![pieces, args])
     }
 
-    /// `FormatArguments.NewConst(&["text"])`.
+    /// `FormatArguments.newConst(&["text"])`.
     fn format_args_const(&mut self, span: Span, text: &str) -> hir::Expr {
         let pieces = self.pieces_array(span, &[text.to_string()]);
-        let f = self.expr_lang_item_type_relative(span, LangItem::FormatArguments, "NewConst");
+        let f = self.expr_lang_item_type_relative(span, LangItem::FormatArguments, "newConst");
         self.expr_call(span, f, vec![pieces])
     }
 
@@ -87,22 +87,22 @@ impl LoweringContext<'_> {
         self.expr_addr_of(span, array)
     }
 
-    /// `FormatArgument.NewDisplay(arg)` and the rest. The library's names
-    /// are exported (exception 11), since the user's crate calls them.
+    /// `FormatArgument.newDisplay(arg)` and the rest. The library's methods
+    /// are `camelCase` (exception 11).
     fn make_argument(&mut self, span: Span, ty: ArgumentType, arg: hir::Expr) -> hir::Expr {
         let name = match ty {
             ArgumentType::Format(t) => match t {
-                FormatTrait::Display => "NewDisplay",
-                FormatTrait::Debug => "NewDebug",
-                FormatTrait::LowerExp => "NewLowerExp",
-                FormatTrait::UpperExp => "NewUpperExp",
-                FormatTrait::Octal => "NewOctal",
-                FormatTrait::Pointer => "NewPointer",
-                FormatTrait::Binary => "NewBinary",
-                FormatTrait::LowerHex => "NewLowerHex",
-                FormatTrait::UpperHex => "NewUpperHex",
+                FormatTrait::Display => "newDisplay",
+                FormatTrait::Debug => "newDebug",
+                FormatTrait::LowerExp => "newLowerExp",
+                FormatTrait::UpperExp => "newUpperExp",
+                FormatTrait::Octal => "newOctal",
+                FormatTrait::Pointer => "newPointer",
+                FormatTrait::Binary => "newBinary",
+                FormatTrait::LowerHex => "newLowerHex",
+                FormatTrait::UpperHex => "newUpperHex",
             },
-            ArgumentType::Usize => "FromUsize",
+            ArgumentType::Usize => "fromUsize",
         };
         let f = self.expr_lang_item_type_relative(span, LangItem::FormatArgument, name);
         self.expr_call(span, f, vec![arg])
@@ -153,7 +153,7 @@ impl LoweringContext<'_> {
 
         let pieces_expr = self.pieces_array(lit_span, &pieces);
         if argmap.is_empty() && !use_format_options {
-            let f = self.expr_lang_item_type_relative(span, LangItem::FormatArguments, "NewConst");
+            let f = self.expr_lang_item_type_relative(span, LangItem::FormatArguments, "newConst");
             return self.expr_call(span, f, vec![pieces_expr]);
         }
 
@@ -207,7 +207,7 @@ impl LoweringContext<'_> {
         };
 
         if !use_format_options {
-            let f = self.expr_lang_item_type_relative(span, LangItem::FormatArguments, "NewV1");
+            let f = self.expr_lang_item_type_relative(span, LangItem::FormatArguments, "newV1");
             return self.expr_call(span, f, vec![pieces_expr, args_expr]);
         }
 
@@ -221,7 +221,7 @@ impl LoweringContext<'_> {
             .collect();
         let specs = self.expr(span, hir::ExprKind::Array(specs));
         let specs = self.expr_addr_of(span, specs);
-        let f = self.expr_lang_item_type_relative(span, LangItem::FormatArguments, "NewV1Formatted");
+        let f = self.expr_lang_item_type_relative(span, LangItem::FormatArguments, "newV1Formatted");
         self.expr_call(span, f, vec![pieces_expr, args_expr, specs])
     }
 
@@ -252,7 +252,7 @@ impl LoweringContext<'_> {
         let flags = self.expr_uint(span, flags);
         let precision = self.make_count(span, o.precision, argmap);
         let width = self.make_count(span, o.width, argmap);
-        let f = self.expr_lang_item_type_relative(span, LangItem::FormatPlaceholder, "New");
+        let f = self.expr_lang_item_type_relative(span, LangItem::FormatPlaceholder, "new");
         self.expr_call(span, f, vec![position, fill, align, flags, precision, width])
     }
 

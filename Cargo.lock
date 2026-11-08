@@ -69,6 +69,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "vsc_const_eval"
+version = "0.1.0"
+dependencies = [
+ "vsc_ast",
+ "vsc_ast_lowering",
+ "vsc_ast_pretty",
+ "vsc_data_structures",
+ "vsc_errors",
+ "vsc_expand",
+ "vsc_hir",
+ "vsc_hir_analysis",
+ "vsc_hir_typeck",
+ "vsc_index",
+ "vsc_infer",
+ "vsc_lexer",
+ "vsc_middle",
+ "vsc_mir_build",
+ "vsc_passes",
+ "vsc_resolve",
+ "vsc_session",
+ "vsc_span",
+ "vsc_trait_selection",
+]
+
+[[package]]
 name = "vsc_data_structures"
 version = "0.1.0"
 
@@ -79,6 +104,7 @@ dependencies = [
  "vsc_ast",
  "vsc_ast_lowering",
  "vsc_ast_pretty",
+ "vsc_const_eval",
  "vsc_errors",
  "vsc_expand",
  "vsc_hir",

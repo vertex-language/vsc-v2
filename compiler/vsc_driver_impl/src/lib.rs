@@ -83,6 +83,8 @@ pub fn run_compiler(args: &[String]) -> ExitCode {
         print_crate(&psess, &krate, unpretty);
     }
 
+    // Set when `-Z run-mir` ran the program and it panicked.
+    let mut program_panicked = false;
     let stop_after_parse = opts.parse_only || opts.unpretty.is_some_and(Unpretty::is_ast);
     if !stop_after_parse {
         let outputs = vsc_resolve::resolve_crate(&psess, &krate);
@@ -95,7 +97,9 @@ pub fn run_compiler(args: &[String]) -> ExitCode {
             Some(Unpretty::HirTree) => println!("{hir:#?}"),
             // Analysis starts from a crate without errors, so its errors
             // don't repeat earlier ones.
-            None | Some(Unpretty::ThirTree) if psess.dcx.has_errors().is_none() => analysis(&psess, &target, &hir, &outputs, &opts),
+            None | Some(Unpretty::ThirTree) if psess.dcx.has_errors().is_none() => {
+                program_panicked = analysis(&psess, &target, &hir, &outputs, &opts);
+            }
             None | Some(Unpretty::Ast | Unpretty::AstTree | Unpretty::ThirTree) => {}
         }
     }
@@ -104,7 +108,11 @@ pub fn run_compiler(args: &[String]) -> ExitCode {
         psess.dcx.print_error_count();
         return ExitCode::from(1);
     }
-    if !stop_after_parse && !opts.check_only && !opts.dump_resolutions && !opts.dump_signatures && !opts.dump_types && !opts.dump_mir && opts.unpretty.is_none() {
+    // A program that panicked exits as Rust's do.
+    if program_panicked {
+        return ExitCode::from(101);
+    }
+    if !stop_after_parse && !opts.check_only && !opts.dump_resolutions && !opts.dump_signatures && !opts.dump_types && !opts.dump_mir && !opts.run_mir && opts.unpretty.is_none() {
         psess
             .dcx
             .struct_note("vsc-v2 stops after building MIR for now")
@@ -115,7 +123,8 @@ pub fn run_compiler(args: &[String]) -> ExitCode {
 }
 
 /// Signatures and the checks on them (rustc's `analysis` query).
-fn analysis(psess: &ParseSess, target: &TargetInfo, hir: &vsc_hir::Crate, resolved: &vsc_resolve::ResolverOutputs, opts: &Options) {
+/// Returns whether `-Z run-mir` ran the program and it panicked.
+fn analysis(psess: &ParseSess, target: &TargetInfo, hir: &vsc_hir::Crate, resolved: &vsc_resolve::ResolverOutputs, opts: &Options) -> bool {
     use vsc_middle::ty::{CtxtInputs, DefInfo, TyCtxt};
     let defs = vsc_index::IndexVec::from_raw(
         resolved
@@ -159,6 +168,21 @@ fn analysis(psess: &ParseSess, target: &TargetInfo, hir: &vsc_hir::Crate, resolv
             if opts.validate_mir {
                 vsc_mir_build::validate_all(tcx);
             }
+            if opts.run_mir && psess.dcx.has_errors().is_none() {
+                struct StdOut;
+                impl vsc_const_eval::Output for StdOut {
+                    fn stdout(&mut self, s: &str) {
+                        use std::io::Write;
+                        let _ = std::io::stdout().write_all(s.as_bytes());
+                        let _ = std::io::stdout().flush();
+                    }
+                    fn stderr(&mut self, s: &str) {
+                        use std::io::Write;
+                        let _ = std::io::stderr().write_all(s.as_bytes());
+                    }
+                }
+                return matches!(vsc_const_eval::run_main(tcx, &mut StdOut), vsc_const_eval::RunResult::Panicked);
+            }
             if opts.dump_mir {
                 // The core stubs' bodies (`//@ add-core-stubs`) aren't the
                 // test's.
@@ -166,6 +190,7 @@ fn analysis(psess: &ParseSess, target: &TargetInfo, hir: &vsc_hir::Crate, resolv
             }
         }
     }
+    false
 }
 
 /// Every file of every package, in package order.

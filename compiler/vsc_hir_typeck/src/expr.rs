@@ -158,6 +158,15 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
             hir::ExprKind::Index(base, idx, _) => self.check_index(e, base, idx),
             hir::ExprKind::AddrOf(kind, m, x) => {
                 let inner_expected = match expected.only_has_type().map(|t| *self.infcx.shallow_resolve(t).kind()) {
+                    // An unsized target (`&[T]` from `&[T; N]`) is only a
+                    // hint for array literals, as rustc's
+                    // `ExpectRvalueLikeUnsized`; others get no expectation.
+                    Some(TyKind::Ref(_, t, _) | TyKind::RawPtr(t, _))
+                        if matches!(self.infcx.shallow_resolve(t).kind(), TyKind::Slice(_) | TyKind::Str | TyKind::Dynamic(..))
+                            && !matches!(x.kind, hir::ExprKind::Array(_) | hir::ExprKind::Repeat(..)) =>
+                    {
+                        Expectation::None
+                    }
                     Some(TyKind::Ref(_, t, _) | TyKind::RawPtr(t, _)) => Expectation::HasType(t),
                     _ => Expectation::None,
                 };
@@ -276,6 +285,22 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                 None => tcx.types.error,
             },
             LitKind::Integer | LitKind::Float => {
+                let ty = self.check_number_lit(lit, expected, span);
+                if lit.kind == LitKind::Integer {
+                    if let Some(v) = vsc_middle::thir::parse_int_lit(lit.symbol.as_str()) {
+                        self.int_literals.borrow_mut().push((span, v, false, ty));
+                    }
+                }
+                ty
+            }
+            LitKind::Err => tcx.types.error,
+        }
+    }
+
+    fn check_number_lit(&self, lit: &vsc_ast::token::Lit, expected: Option<Ty<'tcx>>, span: Span) -> Ty<'tcx> {
+        let tcx = self.tcx;
+        {
+            {
                 if let Some(suffix) = lit.suffix {
                     return match suffix_ty(tcx, suffix.as_str(), lit.kind == LitKind::Float) {
                         Some(t) => t,
@@ -296,8 +321,43 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                     _ => self.infcx.next_float_var(),
                 }
             }
-            LitKind::Err => tcx.types.error,
         }
+    }
+
+    /// An integer literal must fit its type (rustc's `overflowing_literals`,
+    /// an error by default).
+    pub fn check_int_literal(&self, span: Span, value: u128, negated: bool, ty: Ty<'tcx>) {
+        use vsc_middle::ty::{IntTy, UintTy};
+        let ty = self.infcx.resolve_vars_if_possible(ty);
+        let ptr = self.tcx.target.pointer_width;
+        let (bits, signed) = match *ty.kind() {
+            TyKind::Int(i) => (match i { IntTy::I8 => 8, IntTy::I16 => 16, IntTy::I32 => 32, IntTy::I64 => 64, IntTy::I128 => 128, IntTy::Isize => ptr }, true),
+            TyKind::Uint(u) => (match u { UintTy::U8 => 8, UintTy::U16 => 16, UintTy::U32 => 32, UintTy::U64 => 64, UintTy::U128 => 128, UintTy::Usize => ptr }, false),
+            _ => return,
+        };
+        let (min, max): (i128, u128) = if signed {
+            (if bits == 128 { i128::MIN } else { -(1i128 << (bits - 1)) }, (1u128 << (bits - 1)) - 1)
+        } else {
+            (0, if bits == 128 { u128::MAX } else { (1u128 << bits) - 1 })
+        };
+        // A negated literal may reach the minimum: `-128int8`.
+        let fits = if negated { signed && value <= (max + 1) } else { value <= max };
+        if fits {
+            return;
+        }
+        let shown = if negated { format!("-{value}") } else { value.to_string() };
+        let name = self.ty_str(ty);
+        let mut err = self
+            .err(span, format!("literal out of range for `{name}`"))
+            .with_note(format!("the literal `{shown}` does not fit into the type `{name}` whose range is `{min}..={max}`"));
+        let wider = ["int64", "int128"].into_iter().chain(["uint64", "uint128"]).find(|w| {
+            let (wb, ws) = match *w { "int64" => (64, true), "int128" => (128, true), "uint64" => (64, false), _ => (128, false) };
+            ws == signed && wb > bits && (wb == 128 || value <= if ws { (1u128 << (wb - 1)) - 1 + negated as u128 } else { (1u128 << wb) - 1 })
+        });
+        if let Some(w) = wider {
+            err = err.with_help(format!("consider using the type `{w}` instead"));
+        }
+        err.emit();
     }
 
     // -----------------------------------------------------------------------
@@ -649,6 +709,12 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
             UnOp::Deref => Expectation::None,
         };
         let t = self.check_expr_with_expectation(x, inner_expected);
+        // `-128` is one literal for the range check.
+        if op == UnOp::Neg && matches!(&x.kind, hir::ExprKind::Lit(l) if l.kind == LitKind::Integer) {
+            if let Some(last) = self.int_literals.borrow_mut().last_mut() {
+                last.2 = true;
+            }
+        }
         let t = match op {
             UnOp::Deref => self.structurally_resolve(t, x.span),
             _ => self.infcx.shallow_resolve(t),

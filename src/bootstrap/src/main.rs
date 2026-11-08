@@ -6,8 +6,9 @@
 //!
 //! ```text
 //! ./x build                 build the compiler and tools
-//! ./x test                  tidy, unit tests, then tests/ui
+//! ./x test                  tidy, unit tests, then tests/ui and the pairs
 //! ./x test tests/ui [FILTER] [--bless]
+//! ./x test tests/ui pairs --bless   rerun tests/rust with rustc
 //! ./x check                 cargo check
 //! ./x fmt                   rustfmt the workspace
 //! ```

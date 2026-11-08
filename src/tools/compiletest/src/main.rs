@@ -11,10 +11,24 @@
 //! - `//@ compile-flags: …`: extra flags for `vsc`.
 //! - `//@ add-core-stubs`: put `tests/auxiliary/minicore.vs` (the lang
 //!   items, as stubs) in the test's package.
+//! - `//@ run-pass`: compile, then run `main` in the MIR interpreter; it must
+//!   exit successfully, and its output must match the `.stdout` file.
+//! - `//@ run-fail`: the same, but it must panic (exit code 101); its panic
+//!   message is in the `.stderr` file.
+//!
+//! Run tests get the core stubs automatically.
 //!
 //! Annotations: `//~ ERROR text` (this line), `//~^ ERROR text` (one line up,
 //! one more per `^`), `//~| ERROR text` (same line as the previous one).
 //! The kind is `ERROR`, `WARN`, `NOTE` or `HELP`.
+//!
+//! The `pairs` suite checks Vertex against Rust: `tests/rust/NNN_name.rs`
+//! is the source of truth, `tests/vertex/NNN_name.vs` its translation, and
+//! `tests/expected/NNN_name.stdout` the Rust program's output (and
+//! `.exit`, its exit code when not 0). The Vertex program runs in the MIR
+//! interpreter and must print the same. `--bless` regenerates the expected
+//! files by compiling and running the Rust programs with `rustc` (a tool
+//! only: nothing of it is linked into vsc).
 //!
 //! Usage: `compiletest --vsc PATH --root PATH [--bless] [FILTER…]`
 
@@ -45,10 +59,22 @@ fn main() -> ExitCode {
         config.filters.is_empty() || config.filters.iter().any(|f| rel.contains(f.as_str()))
     });
 
+    // The pairs suite.
+    let mut pairs = Vec::new();
+    collect(&config.root.join("tests/vertex"), &mut pairs);
+    pairs.sort();
+    pairs.retain(|t| {
+        let rel = t.strip_prefix(&config.root).unwrap_or(t).to_string_lossy().into_owned();
+        config.filters.is_empty() || config.filters.iter().any(|f| rel.contains(f.as_str()) || f == "pairs")
+    });
+    let ui_count = tests.len();
+    tests.extend(pairs);
+
     let mut failed = Vec::new();
-    for test in &tests {
+    for (i, test) in tests.iter().enumerate() {
         let rel = test.strip_prefix(&config.root).unwrap_or(test);
-        match run_ui_test(&config, test) {
+        let result = if i < ui_count { run_ui_test(&config, test) } else { run_pair_test(&config, test) };
+        match result {
             Ok(()) => println!("test {} ... ok", rel.display()),
             Err(why) => {
                 println!("test {} ... FAILED", rel.display());
@@ -111,12 +137,17 @@ struct Annotation {
 
 fn run_ui_test(config: &Config, test: &Path) -> Result<(), String> {
     let src = std::fs::read_to_string(test).map_err(|e| e.to_string())?;
-    let check_pass = src.lines().any(|l| l.trim() == "//@ check-pass");
-    let flags: Vec<String> = src
+    let run_pass = src.lines().any(|l| l.trim() == "//@ run-pass");
+    let run_fail = src.lines().any(|l| l.trim() == "//@ run-fail");
+    let check_pass = run_pass || src.lines().any(|l| l.trim() == "//@ check-pass");
+    let mut flags: Vec<String> = src
         .lines()
         .filter_map(|l| l.trim().strip_prefix("//@ compile-flags:"))
         .flat_map(|f| f.split_whitespace().map(str::to_string).collect::<Vec<_>>())
         .collect();
+    if run_pass || run_fail {
+        flags.extend(["-Z".to_string(), "run-mir".to_string()]);
+    }
     let expected = parse_annotations(&src)?;
 
     // Each test is its own package: run vsc on just this file by copying it
@@ -127,7 +158,7 @@ fn run_ui_test(config: &Config, test: &Path) -> Result<(), String> {
     let file_name = test.file_name().unwrap();
     let copy = work.join(file_name);
     std::fs::write(&copy, &src).map_err(|e| e.to_string())?;
-    if src.lines().any(|l| l.trim() == "//@ add-core-stubs") {
+    if run_pass || run_fail || src.lines().any(|l| l.trim() == "//@ add-core-stubs") {
         std::fs::copy(config.root.join("tests/auxiliary/minicore.vs"), work.join("minicore.vs")).map_err(|e| e.to_string())?;
     }
 
@@ -145,6 +176,10 @@ fn run_ui_test(config: &Config, test: &Path) -> Result<(), String> {
     let mut problems = Vec::new();
 
     match output.status.code() {
+        Some(101) if run_fail => {}
+        Some(0) if run_fail => problems.push("expected the program to panic, but it exited successfully".to_string()),
+        Some(1) if run_fail => problems.push("expected the program to panic, but compiling or running it failed".to_string()),
+        Some(101) if run_pass => problems.push("expected the program to exit successfully, but it panicked".to_string()),
         Some(0) if !check_pass && !expected.iter().all(|a| a.kind != "ERROR") => {
             problems.push("expected compilation to fail, but it succeeded".to_string())
         }
@@ -193,6 +228,66 @@ fn run_ui_test(config: &Config, test: &Path) -> Result<(), String> {
         }
     }
 
+    if problems.is_empty() { Ok(()) } else { Err(problems.join("\n")) }
+}
+
+/// Runs a Rust program's Vertex translation and compares its output with
+/// the Rust program's.
+fn run_pair_test(config: &Config, test: &Path) -> Result<(), String> {
+    let stem = test.file_stem().unwrap().to_string_lossy().into_owned();
+    let expected_dir = config.root.join("tests/expected");
+    let stdout_path = expected_dir.join(format!("{stem}.stdout"));
+    let exit_path = expected_dir.join(format!("{stem}.exit"));
+    let work = std::env::temp_dir().join(format!("vsc-pairs-{}", std::process::id())).join(&stem);
+    let _ = std::fs::remove_dir_all(&work);
+    std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
+
+    if config.bless {
+        let rust = config.root.join("tests/rust").join(format!("{stem}.rs"));
+        let bin = work.join("rust-bin");
+        let out = Command::new("rustc")
+            .args(["--edition", "2024", "-C", "overflow-checks=on", "-o"])
+            .arg(&bin)
+            .arg(&rust)
+            .output()
+            .map_err(|e| format!("couldn't run rustc: {e}"))?;
+        if !out.status.success() {
+            return Err(format!("rustc failed on {}:\n{}", rust.display(), String::from_utf8_lossy(&out.stderr)));
+        }
+        let run = Command::new(&bin).output().map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&expected_dir).map_err(|e| e.to_string())?;
+        std::fs::write(&stdout_path, &run.stdout).map_err(|e| e.to_string())?;
+        match run.status.code() {
+            Some(0) => {
+                let _ = std::fs::remove_file(&exit_path);
+            }
+            code => std::fs::write(&exit_path, format!("{}\n", code.unwrap_or(-1))).map_err(|e| e.to_string())?,
+        }
+        let version = Command::new("rustc").arg("--version").output().map_err(|e| e.to_string())?;
+        std::fs::write(expected_dir.join("RUSTC_VERSION"), &version.stdout).map_err(|e| e.to_string())?;
+    }
+
+    let src = std::fs::read_to_string(test).map_err(|e| e.to_string())?;
+    std::fs::write(work.join("main.vs"), &src).map_err(|e| e.to_string())?;
+    std::fs::copy(config.root.join("tests/auxiliary/minicore.vs"), work.join("minicore.vs")).map_err(|e| e.to_string())?;
+    let output = Command::new(&config.vsc)
+        .args(["--color=never", "--crate-name=test", "-Z", "validate-mir", "-Z", "run-mir", "main.vs"])
+        .current_dir(&work)
+        .output()
+        .map_err(|e| format!("couldn't run vsc: {e}"))?;
+    let _ = std::fs::remove_dir_all(&work);
+
+    let want_out = std::fs::read_to_string(&stdout_path).map_err(|_| format!("{} is missing (run with --bless)", stdout_path.display()))?;
+    let want_exit: i32 = std::fs::read_to_string(&exit_path).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+    let got_out = String::from_utf8_lossy(&output.stdout).into_owned();
+    let got_exit = output.status.code().unwrap_or(-1);
+    let mut problems = Vec::new();
+    if got_exit != want_exit {
+        problems.push(format!("Rust exits with {want_exit}, Vertex with {got_exit}\n--- stderr\n{}", String::from_utf8_lossy(&output.stderr)));
+    }
+    if got_out != want_out {
+        problems.push(format!("output differs from Rust's\n--- Rust\n{want_out}\n--- Vertex\n{got_out}"));
+    }
     if problems.is_empty() { Ok(()) } else { Err(problems.join("\n")) }
 }
 

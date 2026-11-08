@@ -1,0 +1,40 @@
+package main
+
+enum Shape {
+    Circle(float64)
+    Rect { w: float64; h: float64 }
+    Empty
+}
+
+func area(s: &Shape) -> float64 {
+    match s {
+        Shape.Circle(r) => 3.0 * *r * *r
+        Shape.Rect { w, h } => *w * *h
+        Shape.Empty => 0.0
+    }
+}
+
+func classify(n: int32) -> &static string {
+    match n {
+        -2147483648..=-1 => "negative"
+        0 => "zero"
+        1..=9 => "small"
+        _ => "large"
+    }
+}
+
+func main() {
+    let shapes = [Shape.Circle(1.5), Shape.Rect { w: 2.0, h: 4.0 }, Shape.Empty]
+    for s in &shapes {
+        println("{:?} has area {:.2}", s, area(s))
+    }
+    for n in &[-5, 0, 7, 42] {
+        println("{n} is {}", classify(*n))
+    }
+    let pair = (3, -3)
+    match pair {
+        (x, y) if x + y == 0 => println("opposites")
+        (x, _) if x % 2 == 0 => println("even first")
+        _ => println("other")
+    }
+}

@@ -6,17 +6,17 @@
 package main
 
 func pop(v: &mut Vec<int64>) {
-    v.Pop()
+    v.pop()
 }
 
 func each(v: &mut Vec<int64>, ok: bool) {
-    if ok { v.Pop() }
-    while ok { v.Pop() }
+    if ok { v.pop() }
+    while ok { v.pop() }
     match ok {
-        true => { v.Pop() }
+        true => { v.pop() }
         false => {}
     }
-    for i in 0..3 { v.Pop() }
+    for i in 0..3 { v.pop() }
 }
 
 func value(ok: bool) -> int64 {

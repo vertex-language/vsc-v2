@@ -15,7 +15,8 @@ crates allowed at the edges are listed in
 
 The front of the pipeline works: lexing, parsing, package loading, `@cfg`,
 built-ins, name resolution, lowering to HIR, item signatures, type checking
-of function bodies, THIR with the `unsafe` and pattern checks, and MIR.
+of function bodies, THIR with the `unsafe` and pattern checks, MIR, and an
+interpreter that runs MIR, so programs run before there is a back end.
 
 | Stage | Crates | State |
 | --- | --- | --- |
@@ -29,7 +30,8 @@ of function bodies, THIR with the `unsafe` and pattern checks, and MIR.
 | Type checking bodies | `vsc_infer`, `vsc_trait_selection`, `vsc_hir_typeck` | inference, coercions, method lookup, trait selection and normalization, patterns with default binding modes, exceptions 3, 10 and 14; not yet `async`, operator traits, `unsafe` checking |
 | THIR | `vsc_middle::thir`, `vsc_mir_build`, `vsc_pattern_analysis` | THIR with explicit adjustments; `unsafe` checking; exhaustiveness (E0004) and refutability (E0005) with witnesses, unreachable arms |
 | MIR | `vsc_middle::mir`, `vsc_mir_build` | built from THIR with overflow, division and bounds checks, arm-by-arm matching, closures with captures; validated by `-Z validate-mir` (on in every ui test); no drops or storage markers yet; slicing by ranges not yet |
-| Borrow checking, interpreter, code generation | | not started |
+| Interpreter | `vsc_const_eval` | runs `main` from MIR (`-Z run-mir`): generics instantiated on demand, trait methods resolved to their impls, classes, closures, `func` values, slices, vectors, formatting and panics as Rust prints them (exit code 101); the library functions it doesn't have yet are `@intrinsic` stubs |
+| Borrow checking | | not started |
 | Code generation (LLVM) | | not started |
 
 Until `library/` can be built, imports of `std` and other crates report
@@ -46,8 +48,9 @@ You need a stable Rust toolchain (1.98 or later).
 
 ```sh
 ./x build                        # build vsc
-./x test                         # tidy, unit tests, tests/ui
+./x test                         # tidy, unit tests, tests/ui, pairs
 ./x test tests/ui [FILTER] --bless
+./x test tests/ui pairs --bless  # rerun the Rust programs with rustc
 ```
 
 ```sh
@@ -59,6 +62,7 @@ target/debug/vsc -Z dump-signatures main.vs  # every item's type or signature
 target/debug/vsc -Z dump-types main.vs       # the types inferred in every body
 target/debug/vsc -Z unpretty=thir-tree main.vs  # every body's THIR
 target/debug/vsc -Z dump-mir main.vs         # every body's MIR
+target/debug/vsc -Z run-mir main.vs          # run main in the MIR interpreter
 ```
 
 ## Layout
@@ -68,7 +72,10 @@ compiler/     one crate per rustc crate: vsc_lexer, vsc_parse, vsc_ast, …, vsc
 src/bootstrap ./x
 src/tools/    compiletest, tidy
 src/doc/      the Vertex reference: grammar.md, usage.md, rust_grammar.md
-tests/ui/     .vs files with //~ annotations and expected .stderr / .stdout
+tests/ui/     .vs files with //~ annotations and expected .stderr / .stdout;
+              run-pass and run-fail tests run in the interpreter
+tests/rust/   Rust programs, and tests/vertex/ the same programs in Vertex:
+              the pairs suite checks vsc's output against rustc's (tests/expected/)
 ```
 
 Inside each crate the files follow rustc's names, so the

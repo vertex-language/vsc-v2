@@ -13,6 +13,8 @@
 mod expr;
 mod matches;
 
+pub use matches::discriminant_value;
+
 use vsc_data_structures::FxHashMap;
 use vsc_hir::HirId;
 use vsc_hir::def::DefKind;
