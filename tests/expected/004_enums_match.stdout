@@ -1,0 +1,8 @@
+Circle(1.5) has area 6.75
+Rect { w: 2.0, h: 4.0 } has area 8.00
+Empty has area 0.00
+-5 is negative
+0 is zero
+7 is small
+42 is large
+opposites

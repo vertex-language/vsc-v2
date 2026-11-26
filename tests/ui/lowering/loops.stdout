@@ -1,0 +1,43 @@
+fn main(xs: &[int64]) {
+    let mut total = 0;
+    drop_temps!(match #[lang = "intoIter"](xs) {
+        mut iter => 'outer: loop {
+            match #[lang = "next"](&mut iter) {
+                #[lang = "None"] => break,
+                #[lang = "Some"](x) => {
+                    drop_temps!(match #[lang = "intoIter"](xs) {
+                        mut iter => loop {
+                            match #[lang = "next"](&mut iter) {
+                                #[lang = "None"] => break,
+                                #[lang = "Some"](y) => {
+                                    if drop_temps!(*y > 3) {
+                                        continue 'outer
+                                    };
+                                    total += *x * *y
+                                },
+                            }
+                        },
+                    })
+                },
+            }
+        },
+    });
+    loop {
+        if drop_temps!(total > 10) {
+            total -= 1
+        } else { break }
+    };
+    let found = loop {
+        if drop_temps!(total == 0) {
+            break true
+        };
+        total -= 1
+    };
+    let v = 'block: {
+        if drop_temps!(found) {
+            break 'block 1
+        };
+        2
+    };
+}
+

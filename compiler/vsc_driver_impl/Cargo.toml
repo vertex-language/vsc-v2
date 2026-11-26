@@ -1,0 +1,16 @@
+[package]
+name = "vsc_driver_impl"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vsc_ast.workspace = true
+vsc_ast_pretty.workspace = true
+vsc_codegen_obsidian.workspace = true
+vsc_errors.workspace = true
+vsc_hir_pretty.workspace = true
+vsc_interface.workspace = true
+vsc_session.workspace = true
+vsc_span.workspace = true

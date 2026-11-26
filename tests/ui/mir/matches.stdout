@@ -1,0 +1,166 @@
+fn area(_1: Shape) -> float64 {
+    debug s => _1;
+    debug r => _3;
+    debug w => _5;
+    debug h => _6;
+    let mut _0: float64;
+    let mut _2: int;
+    let _3: float64;
+    let mut _4: int;
+    let _5: float64;
+    let _6: float64;
+    let mut _7: int;
+
+    bb0: {
+        _2 = discriminant(_1);
+        switchInt(move _2) -> [0: bb3, otherwise: bb2];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        _4 = discriminant(_1);
+        switchInt(move _4) -> [1: bb5, otherwise: bb4];
+    }
+
+    bb3: {
+        _3 = ((_1 as variant#0).0: float64);
+        _0 = Mul(_3, _3);
+        goto -> bb1;
+    }
+
+    bb4: {
+        _7 = discriminant(_1);
+        switchInt(move _7) -> [2: bb7, otherwise: bb6];
+    }
+
+    bb5: {
+        _5 = ((_1 as variant#1).0: float64);
+        _6 = ((_1 as variant#1).1: float64);
+        _0 = Mul(_5, _6);
+        goto -> bb1;
+    }
+
+    bb6: {
+        unreachable;
+    }
+
+    bb7: {
+        _0 = const 0_float64;
+        goto -> bb1;
+    }
+}
+
+fn classify(_1: uint8) -> int32 {
+    debug n => _1;
+    let mut _0: int32;
+    let mut _2: bool;
+    let mut _3: bool;
+
+    bb0: {
+        switchInt(_1) -> [0: bb3, otherwise: bb2];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        _2 = Ge(_1, const 1_uint8);
+        switchInt(move _2) -> [0: bb4, otherwise: bb5];
+    }
+
+    bb3: {
+        _0 = const 0_int32;
+        goto -> bb1;
+    }
+
+    bb4: {
+        _0 = const 2_int32;
+        goto -> bb1;
+    }
+
+    bb5: {
+        _3 = Le(_1, const 9_uint8);
+        switchInt(move _3) -> [0: bb4, otherwise: bb6];
+    }
+
+    bb6: {
+        _0 = const 1_int32;
+        goto -> bb1;
+    }
+
+    bb7: {
+        unreachable;
+    }
+}
+
+fn ends(_1: &[int64]) -> int64 {
+    debug xs => _1;
+    debug first => _6;
+    debug last => _7;
+    debug one => _11;
+    let mut _0: int64;
+    let mut _2: uint;
+    let mut _3: bool;
+    let mut _4: uint;
+    let mut _5: bool;
+    let _6: &int64;
+    let _7: &int64;
+    let mut _8: (int64, bool);
+    let mut _9: uint;
+    let mut _10: bool;
+    let _11: &int64;
+
+    bb0: {
+        _2 = Len((*_1));
+        _3 = Eq(_2, const 0_uint);
+        switchInt(move _3) -> [0: bb2, otherwise: bb3];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        _4 = Len((*_1));
+        _5 = Ge(_4, const 2_uint);
+        switchInt(move _5) -> [0: bb4, otherwise: bb5];
+    }
+
+    bb3: {
+        _0 = const 0_int64;
+        goto -> bb1;
+    }
+
+    bb4: {
+        _9 = Len((*_1));
+        _10 = Eq(_9, const 1_uint);
+        switchInt(move _10) -> [0: bb7, otherwise: bb8];
+    }
+
+    bb5: {
+        _6 = &(*_1)[0 of 2];
+        _7 = &(*_1)[-1 of 2];
+        _8 = AddWithOverflow((*_6), (*_7));
+        assert(!move (_8.1: bool), "attempt to compute `{} Add {}`, which would overflow", (*_6), (*_7)) -> bb6;
+    }
+
+    bb6: {
+        _0 = move (_8.0: int64);
+        goto -> bb1;
+    }
+
+    bb7: {
+        unreachable;
+    }
+
+    bb8: {
+        _11 = &(*_1)[0 of 1];
+        _0 = (*_11);
+        goto -> bb1;
+    }
+}
+

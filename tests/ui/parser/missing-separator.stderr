@@ -1,0 +1,14 @@
+error: expected `;` or a line break, found keyword `let`
+ --> $DIR/missing-separator.vs:3:15
+  |
+3 |     let a = 1 let b = 2 //~ ERROR expected `;` or a line break, found keyword `let`
+  |               ^^^ unexpected token
+  |
+  = note: statements are separated by line breaks, or by `;` on one line
+help: add `;` here
+  |
+3 |     let a = 1; let b = 2 //~ ERROR expected `;` or a line break, found keyword `let`
+  |              +
+
+error: aborting due to 1 previous error
+

@@ -1,0 +1,18 @@
+error[E0261]: use of undeclared lifetime name `c`
+ --> $DIR/lifetimes.vs:9:30
+  |
+9 | func nowhere(a: &string) -> &c string { a } //~ ERROR use of undeclared lifetime name `c`
+  |                              ^ undeclared lifetime
+  |
+  = help: consider introducing lifetime `c` here: `<c>`
+
+error[E0261]: use of undeclared lifetime name `a`
+  --> $DIR/lifetimes.vs:10:28
+   |
+10 | func param(a: &string) -> &a string { a } //~ ERROR use of undeclared lifetime name `a`
+   |                            ^ undeclared lifetime
+   |
+   = help: consider introducing lifetime `a` here: `<a>`
+
+error: aborting due to 2 previous errors
+

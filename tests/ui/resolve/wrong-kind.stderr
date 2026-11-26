@@ -1,0 +1,26 @@
+error[E0573]: expected type, found trait `Shape`
+ --> $DIR/wrong-kind.vs:6:14
+  |
+6 | func f<T>(s: Shape) { //~ ERROR expected type, found trait `Shape`
+  |              ^^^^^ not a type
+help: trait objects are written with `dyn`
+  |
+6 | func f<T>(s: dyn Shape) { //~ ERROR expected type, found trait `Shape`
+  |              ++++
+
+error[E0423]: expected value, found struct `Point`
+ --> $DIR/wrong-kind.vs:7:13
+  |
+7 |     let p = Point //~ ERROR expected value, found struct `Point`
+  |             ^^^^^ not a value
+  |
+  = help: use struct literal syntax: `Point { … }`
+
+error[E0423]: expected value, found type parameter `T`
+ --> $DIR/wrong-kind.vs:8:13
+  |
+8 |     let t = T //~ ERROR expected value, found type parameter `T`
+  |             ^ not a value
+
+error: aborting due to 3 previous errors
+

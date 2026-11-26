@@ -1,0 +1,12 @@
+struct String
+    len: uint
+struct CString
+    len: uint
+struct CStr
+    len: uint
+fn owned: func(string) -> string
+fn borrowed: func(&string) -> &string
+fn grow: func(&mut string)
+fn c: func(&cstring, cstring)
+fn ctypes: func(int8, int32, int64, uint64, float64) -> never
+fn ints: func(int, uint, int8, uint128, float32)

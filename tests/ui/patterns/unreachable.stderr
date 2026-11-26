@@ -1,0 +1,12 @@
+warning: unreachable pattern
+  --> $DIR/unreachable.vs:10:9
+   |
+10 |         5 => {} //~ WARN unreachable pattern
+   |         ^ no value can reach this
+
+warning: unreachable pattern
+  --> $DIR/unreachable.vs:15:9
+   |
+15 |         Option.Some(3) => {} //~ WARN unreachable pattern
+   |         ^^^^^^^^^^^^^^ no value can reach this
+

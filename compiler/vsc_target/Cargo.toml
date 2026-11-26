@@ -1,0 +1,12 @@
+[package]
+name = "vsc_target"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vsc_abi.workspace = true
+
+[dev-dependencies]
+vsc_index.workspace = true

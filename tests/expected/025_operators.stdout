@@ -1,0 +1,9 @@
+V2 { x: 4, y: -2 }
+V2 { x: -2, y: 6 }
+V2 { x: 9, y: -12 }
+V2 { x: -1, y: -2 }
+V2 { x: 14, y: 8 }
+true false true
+true true false false
+Some(Less)
+V2 { x: 18, y: 6 }

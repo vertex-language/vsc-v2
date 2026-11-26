@@ -1,0 +1,9 @@
+vsc-v2 is licensed under the MIT license (see LICENSE).
+
+The grammar in src/doc/reference/grammar.md and src/doc/reference/rust_grammar.md
+is derived from The Rust Reference (https://github.com/rust-lang/reference),
+copyright The Rust Project Developers, dual-licensed under MIT and Apache-2.0.
+
+vsc's compiler is written from scratch. Its crate structure and naming follow
+rustc (https://github.com/rust-lang/rust) so that the rustc-dev-guide can be
+read as a map of vsc; no rustc source code is copied.

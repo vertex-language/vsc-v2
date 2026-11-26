@@ -1,0 +1,32 @@
+error[E0412]: cannot find type `i64` in this scope
+ --> $DIR/not-found.vs:3:15
+  |
+3 | func count(x: i64) -> int64 { //~ ERROR cannot find type `i64` in this scope
+  |               ^^^ not found in this scope
+help: Vertex writes `i64` as `int64`
+  |
+3 | func count(x: int64) -> int64 { //~ ERROR cannot find type `i64` in this scope
+  |               ~~~~~
+
+error[E0425]: cannot find value `missing` in this scope
+ --> $DIR/not-found.vs:4:13
+  |
+4 |     let a = missing //~ ERROR cannot find value `missing` in this scope
+  |             ^^^^^^^ not found in this scope
+
+error[E0422]: cannot find struct, variant or union type `Task` in this scope
+ --> $DIR/not-found.vs:5:13
+  |
+5 |     let b = Task { done: false } //~ ERROR cannot find struct, variant or union type `Task` in this scope
+  |             ^^^^ not found in this scope
+
+error[E0412]: cannot find type `Vec` in this scope
+ --> $DIR/not-found.vs:6:12
+  |
+6 |     let c: Vec<int64> = b //~ ERROR cannot find type `Vec` in this scope
+  |            ^^^ not found in this scope
+  |
+  = note: `Vec` comes from the standard library, which vsc-v2 can't build yet
+
+error: aborting due to 4 previous errors
+

@@ -1,0 +1,509 @@
+//! Library functions the interpreter carries out itself: those marked
+//! `@intrinsic("name")`, and the lang items for printing, formatting,
+//! panicking and building vectors. Until `library/` can be built, these
+//! stand in for code that will call the operating system or manage memory.
+
+use std::rc::Rc;
+
+use vsc_hir::LangItem;
+use vsc_middle::ty::{GenericArg, GenericArgsRef, Ty};
+use vsc_span::def_id::DefId;
+
+use super::*;
+
+impl<'a, 'tcx> Interpreter<'a, 'tcx> {
+    /// Runs `def` natively if it's an intrinsic; `None` if it isn't.
+    pub fn call_intrinsic(&mut self, def: DefId, args: GenericArgsRef<'tcx>, vals: &[Value<'tcx>]) -> InterpResult<Option<Value<'tcx>>> {
+        if let Some(item) = self.tcx.lang_items().from_def_id(def) {
+            if let Some(v) = self.lang_item(item, args, vals)? {
+                return Ok(Some(v));
+            }
+        }
+        let Some(name) = self.intrinsic_name(def) else { return Ok(None) };
+        let ty_arg = |i: usize| -> Option<Ty<'tcx>> {
+            args.iter().filter_map(|a| if let GenericArg::Type(t) = a { Some(*t) } else { None }).nth(i)
+        };
+        let last_ty = args.iter().rev().find_map(|a| if let GenericArg::Type(t) = a { Some(*t) } else { None });
+        let v = match name.as_str() {
+            "format_new_const" => {
+                let pieces = self.read_str_slice(&vals[0])?;
+                Value::FmtArgs(Rc::new(FmtArgs { pieces, args: Vec::new(), placeholders: None }))
+            }
+            "format_new_v1" | "format_new_v1_formatted" => {
+                let pieces = self.read_str_slice(&vals[0])?;
+                let args = self.read_slice(&vals[1])?.into_iter().map(|a| match a {
+                    Value::FmtArg(f) => Ok(f),
+                    _ => self.ub("a format argument that isn't one"),
+                });
+                let args = args.collect::<InterpResult<Vec<_>>>()?;
+                let placeholders = if name.as_str() == "format_new_v1_formatted" {
+                    let ps = self.read_slice(&vals[2])?.into_iter().map(|p| match p {
+                        Value::Placeholder(p) => Ok(p),
+                        _ => self.ub("a placeholder that isn't one"),
+                    });
+                    Some(ps.collect::<InterpResult<Vec<_>>>()?)
+                } else {
+                    None
+                };
+                Value::FmtArgs(Rc::new(FmtArgs { pieces, args, placeholders }))
+            }
+            n if n.starts_with("format_arg_") => {
+                let trait_ = match &n["format_arg_".len()..] {
+                    "display" => FmtTrait::Display,
+                    "debug" => FmtTrait::Debug,
+                    "lower_exp" => FmtTrait::LowerExp,
+                    "upper_exp" => FmtTrait::UpperExp,
+                    "octal" => FmtTrait::Octal,
+                    "pointer" => FmtTrait::Pointer,
+                    "binary" => FmtTrait::Binary,
+                    "lower_hex" => FmtTrait::LowerHex,
+                    "upper_hex" => FmtTrait::UpperHex,
+                    _ => FmtTrait::Usize,
+                };
+                let ty = if trait_ == FmtTrait::Usize { self.tcx.types.usize } else { last_ty.unwrap_or(self.tcx.types.error) };
+                Value::FmtArg(Rc::new(FmtArg { trait_, value: vals[0].clone(), ty }))
+            }
+            "format_placeholder_new" => {
+                let count = |v: &Value<'tcx>| -> InterpResult<Count> {
+                    match v {
+                        Value::Adt { variant: 0, fields } => Ok(Count::Is(self.as_usize(&fields[0])?)),
+                        Value::Adt { variant: 1, fields } => Ok(Count::Param(self.as_usize(&fields[0])?)),
+                        _ => Ok(Count::Implied),
+                    }
+                };
+                let align = match &vals[2] {
+                    Value::Adt { variant, .. } => *variant as u8,
+                    _ => 3,
+                };
+                let fill = match &vals[1] {
+                    Value::Char(c) => *c,
+                    _ => ' ',
+                };
+                Value::Placeholder(Placeholder {
+                    position: self.as_usize(&vals[0])?,
+                    fill,
+                    align,
+                    flags: self.as_usize(&vals[3])? as u32,
+                    precision: count(&vals[4])?,
+                    width: count(&vals[5])?,
+                })
+            }
+            "vec_len" => {
+                let v = self.read(&self.deref_value(&vals[0])?)?;
+                match v {
+                    Value::Vec(xs) => self.usize(xs.len()),
+                    _ => return self.ub("`len` of a value that isn't a vector"),
+                }
+            }
+            "vec_push" => {
+                let loc = self.deref_value(&vals[0])?;
+                let mut v = self.read(&loc)?;
+                let Value::Vec(xs) = &mut v else { return self.ub("`push` onto a value that isn't a vector") };
+                xs.push(vals[1].clone());
+                self.write(&loc, v)?;
+                Value::unit()
+            }
+            "vec_pop" => {
+                let loc = self.deref_value(&vals[0])?;
+                let mut v = self.read(&loc)?;
+                let Value::Vec(xs) = &mut v else { return self.ub("`pop` from a value that isn't a vector") };
+                let popped = xs.pop();
+                self.write(&loc, v)?;
+                self.option(popped)
+            }
+            "vec_index" | "vec_index_mut" => {
+                // A pointer to the element, after Rust's bounds check.
+                let loc = self.deref_value(&vals[0])?;
+                let len = match self.read(&loc)? {
+                    Value::Vec(xs) => xs.len(),
+                    _ => return self.ub("indexing a value that isn't a vector"),
+                };
+                let i = self.as_usize(&vals[1])?;
+                if i >= len {
+                    return self.panic(format!("index out of bounds: the len is {len} but the index is {i}"));
+                }
+                let mut path = loc.path.clone();
+                path.push(i);
+                Value::Ptr(Pointer { alloc: loc.alloc, path })
+            }
+            "slice_len" => match &vals[0] {
+                Value::SlicePtr { len, .. } => self.usize(*len),
+                _ => return self.ub("`sliceLen` of a value that isn't a slice"),
+            },
+            "range_next" => {
+                // `Range { start, end }`: yields `start` and moves it on.
+                let loc = self.deref_value(&vals[0])?;
+                let Value::Adt { fields, .. } = self.read(&loc)? else { return self.ub("`next` of a value that isn't a range") };
+                let (Value::Int(start), Value::Int(end)) = (&fields[0], &fields[1]) else {
+                    return self.unsupported("iterating a range of a type other than an integer");
+                };
+                if start.to_i128() < end.to_i128() {
+                    let next = Int::from_bits(start.bits.wrapping_add(1), start.size, start.signed);
+                    let mut start_loc = loc.clone();
+                    start_loc.path.push(0);
+                    self.write(&start_loc, Value::Int(next))?;
+                    self.option(Some(Value::Int(*start)))
+                } else {
+                    self.option(None)
+                }
+            }
+            "range_inclusive_next" => {
+                // `RangeInclusive { start, end, exhausted }`: yields `start`
+                // until it passes `end`; `exhausted` marks that `end` was
+                // yielded, as in Rust, so `0..=MAX` ends without overflow.
+                let loc = self.deref_value(&vals[0])?;
+                let Value::Adt { fields, .. } = self.read(&loc)? else { return self.ub("`next` of a value that isn't a range") };
+                let (Value::Int(start), Value::Int(end), Value::Bool(exhausted)) = (&fields[0], &fields[1], &fields[2]) else {
+                    return self.unsupported("iterating a range of a type other than an integer");
+                };
+                if *exhausted || start.to_i128() > end.to_i128() {
+                    self.option(None)
+                } else {
+                    let (field, value) = if start.to_i128() < end.to_i128() {
+                        (0, Value::Int(Int::from_bits(start.bits.wrapping_add(1), start.size, start.signed)))
+                    } else {
+                        (2, Value::Bool(true))
+                    };
+                    let mut field_loc = loc.clone();
+                    field_loc.path.push(field);
+                    self.write(&field_loc, value)?;
+                    self.option(Some(Value::Int(*start)))
+                }
+            }
+            "size_of" => {
+                let Some(ty) = ty_arg(0) else {
+                    return self.ub("`size_of` missing type argument");
+                };
+                let Ok(layout) = self.tcx.layout_of(ty) else {
+                    return self.ub("`size_of` on type without layout");
+                };
+                self.usize(layout.size.bytes() as usize)
+            }
+            "align_of" => {
+                let Some(ty) = ty_arg(0) else {
+                    return self.ub("`align_of` missing type argument");
+                };
+                let Ok(layout) = self.tcx.layout_of(ty) else {
+                    return self.ub("`align_of` on type without layout");
+                };
+                self.usize(layout.align.bytes() as usize)
+            }
+            "needs_drop" => {
+                let Some(ty) = ty_arg(0) else {
+                    return self.ub("`needs_drop` missing type argument");
+                };
+                Value::Bool(self.tcx.needs_drop_raw(ty))
+            }
+            "black_box" => vals[0].clone(),
+            "spin_loop" | "spin_hint" => Value::unit(),
+            "abort" => return self.panic("explicit abort".to_string()),
+            "unreachable" => return self.ub("entered unreachable code"),
+            "ctpop" => match vals[0] {
+                Value::Int(i) => {
+                    let count = (i.bits & Int::mask(i.size)).count_ones() as u128;
+                    Value::Int(Int::from_bits(count, 32, false))
+                }
+                _ => return self.ub("`ctpop` on non-integer"),
+            },
+            "ctlz" | "ctlz_nonzero" => match vals[0] {
+                Value::Int(i) => {
+                    let bits = i.size;
+                    let v = i.bits & Int::mask(bits);
+                    let lz = v.leading_zeros() - (128 - bits);
+                    Value::Int(Int::from_bits(lz as u128, 32, false))
+                }
+                _ => return self.ub("`ctlz` on non-integer"),
+            },
+            "cttz" | "cttz_nonzero" => match vals[0] {
+                Value::Int(i) => {
+                    let bits = i.size;
+                    let v = i.bits & Int::mask(bits);
+                    let tz = if v == 0 { bits } else { v.trailing_zeros() };
+                    Value::Int(Int::from_bits(tz as u128, 32, false))
+                }
+                _ => return self.ub("`cttz` on non-integer"),
+            },
+            "bswap" => match vals[0] {
+                Value::Int(i) => {
+                    let swapped = match i.size {
+                        8 => i.bits & 0xff,
+                        16 => (i.bits as u16).swap_bytes() as u128,
+                        32 => (i.bits as u32).swap_bytes() as u128,
+                        64 => (i.bits as u64).swap_bytes() as u128,
+                        128 => i.bits.swap_bytes(),
+                        _ => i.bits,
+                    };
+                    Value::Int(Int::from_bits(swapped, i.size, i.signed))
+                }
+                _ => return self.ub("`bswap` on non-integer"),
+            },
+            "bitreverse" => match vals[0] {
+                Value::Int(i) => {
+                    let rev = match i.size {
+                        8 => (i.bits as u8).reverse_bits() as u128,
+                        16 => (i.bits as u16).reverse_bits() as u128,
+                        32 => (i.bits as u32).reverse_bits() as u128,
+                        64 => (i.bits as u64).reverse_bits() as u128,
+                        128 => i.bits.reverse_bits(),
+                        _ => i.bits,
+                    };
+                    Value::Int(Int::from_bits(rev, i.size, i.signed))
+                }
+                _ => return self.ub("`bitreverse` on non-integer"),
+            },
+            "rotate_left" => match (&vals[0], &vals[1]) {
+                (Value::Int(i), Value::Int(amt)) => {
+                    let n = amt.bits as u32;
+                    let rot = match i.size {
+                        8 => (i.bits as u8).rotate_left(n) as u128,
+                        16 => (i.bits as u16).rotate_left(n) as u128,
+                        32 => (i.bits as u32).rotate_left(n) as u128,
+                        64 => (i.bits as u64).rotate_left(n) as u128,
+                        128 => i.bits.rotate_left(n),
+                        _ => i.bits,
+                    };
+                    Value::Int(Int::from_bits(rot, i.size, i.signed))
+                }
+                _ => return self.ub("`rotate_left` on non-integer"),
+            },
+            "rotate_right" => match (&vals[0], &vals[1]) {
+                (Value::Int(i), Value::Int(amt)) => {
+                    let n = amt.bits as u32;
+                    let rot = match i.size {
+                        8 => (i.bits as u8).rotate_right(n) as u128,
+                        16 => (i.bits as u16).rotate_right(n) as u128,
+                        32 => (i.bits as u32).rotate_right(n) as u128,
+                        64 => (i.bits as u64).rotate_right(n) as u128,
+                        128 => i.bits.rotate_right(n),
+                        _ => i.bits,
+                    };
+                    Value::Int(Int::from_bits(rot, i.size, i.signed))
+                }
+                _ => return self.ub("`rotate_right` on non-integer"),
+            },
+            "sqrtf32" => match vals[0] {
+                Value::F32(f) => Value::F32(f.sqrt()),
+                _ => return self.ub("`sqrtf32` on non-float32"),
+            },
+            "sqrtf64" => match vals[0] {
+                Value::F64(f) => Value::F64(f.sqrt()),
+                _ => return self.ub("`sqrtf64` on non-float64"),
+            },
+            "fabsf32" => match vals[0] {
+                Value::F32(f) => Value::F32(f.abs()),
+                _ => return self.ub("`fabsf32` on non-float32"),
+            },
+            "fabsf64" => match vals[0] {
+                Value::F64(f) => Value::F64(f.abs()),
+                _ => return self.ub("`fabsf64` on non-float64"),
+            },
+            "floorf32" => match vals[0] {
+                Value::F32(f) => Value::F32(f.floor()),
+                _ => return self.ub("`floorf32` on non-float32"),
+            },
+            "floorf64" => match vals[0] {
+                Value::F64(f) => Value::F64(f.floor()),
+                _ => return self.ub("`floorf64` on non-float64"),
+            },
+            "ceilf32" => match vals[0] {
+                Value::F32(f) => Value::F32(f.ceil()),
+                _ => return self.ub("`ceilf32` on non-float32"),
+            },
+            "ceilf64" => match vals[0] {
+                Value::F64(f) => Value::F64(f.ceil()),
+                _ => return self.ub("`ceilf64` on non-float64"),
+            },
+            "truncf32" => match vals[0] {
+                Value::F32(f) => Value::F32(f.trunc()),
+                _ => return self.ub("`truncf32` on non-float32"),
+            },
+            "truncf64" => match vals[0] {
+                Value::F64(f) => Value::F64(f.trunc()),
+                _ => return self.ub("`truncf64` on non-float64"),
+            },
+            "roundevenf32" => match vals[0] {
+                Value::F32(f) => Value::F32(f.round_ties_even()),
+                _ => return self.ub("`roundevenf32` on non-float32"),
+            },
+            "roundevenf64" => match vals[0] {
+                Value::F64(f) => Value::F64(f.round_ties_even()),
+                _ => return self.ub("`roundevenf64` on non-float64"),
+            },
+            other => {
+                let _ = ty_arg;
+                return self.unsupported(format!("the intrinsic `{other}`"));
+            }
+        };
+        Ok(Some(v))
+    }
+
+    fn lang_item(&mut self, item: LangItem, args: GenericArgsRef<'tcx>, vals: &[Value<'tcx>]) -> InterpResult<Option<Value<'tcx>>> {
+        Ok(Some(match item {
+            LangItem::Print | LangItem::Eprint => {
+                let text = self.format_value_args(&vals[0])?;
+                if item == LangItem::Print {
+                    self.out.stdout(&text);
+                } else {
+                    self.out.stderr(&text);
+                }
+                Value::unit()
+            }
+            LangItem::Format => Value::Str(self.format_value_args(&vals[0])?),
+            LangItem::PanicFmt => {
+                let text = self.format_value_args(&vals[0])?;
+                return self.panic(text);
+            }
+            LangItem::AssertFailed => {
+                let tys: Vec<Ty<'tcx>> = args.iter().filter_map(|a| if let GenericArg::Type(t) = a { Some(*t) } else { None }).collect();
+                let op = match &vals[0] {
+                    Value::Adt { variant: 1, .. } => "!=",
+                    _ => "==",
+                };
+                let left = self.debug_string(&vals[1], self.tcx.mk_ref(self.tcx.regions.re_erased, tys[0], ty::Mutability::Not))?;
+                let right = self.debug_string(&vals[2], self.tcx.mk_ref(self.tcx.regions.re_erased, tys[1], ty::Mutability::Not))?;
+                let msg = match &vals[3] {
+                    Value::Adt { fields, .. } if !fields.is_empty() => format!(": {}", self.format_value_args(&fields[0])?),
+                    _ => String::new(),
+                };
+                return self.panic(format!("assertion `left {op} right` failed{msg}\n  left: {left}\n right: {right}"));
+            }
+            LangItem::VecNew => Value::Vec(Vec::new()),
+            LangItem::VecFromArray => match &vals[0] {
+                Value::Array(xs) => Value::Vec(xs.clone()),
+                _ => return self.ub("`vec[…]` of a value that isn't an array"),
+            },
+            LangItem::VecFromElem => {
+                let n = self.as_usize(&vals[1])?;
+                Value::Vec(vec![vals[0].clone(); n])
+            }
+            _ => return Ok(None),
+        }))
+    }
+
+    /// The operator traits' methods for the primitive types, which the
+    /// compiler provides: `None` if `def` isn't one of them.
+    pub fn call_builtin_op(&mut self, def: DefId, args: GenericArgsRef<'tcx>, vals: &[Value<'tcx>]) -> InterpResult<Option<Value<'tcx>>> {
+        use vsc_middle::mir::{BinOp, UnOp};
+        let tcx = self.tcx;
+        let Some(parent) = tcx.opt_parent(def) else { return Ok(None) };
+        if vsc_trait_selection::op_trait(tcx, parent).is_none() {
+            return Ok(None);
+        }
+        let Some(GenericArg::Type(self_ty)) = args.first() else { return Ok(None) };
+        if !matches!(self_ty.kind(), ty::TyKind::Int(_) | ty::TyKind::Uint(_) | ty::TyKind::Float(_) | ty::TyKind::Bool | ty::TyKind::Char) {
+            return Ok(None);
+        }
+        let name = tcx.item_name(def);
+        let name = name.as_str();
+        let (base, assign) = match name.strip_suffix("Assign") {
+            Some(b) => (b, true),
+            None => (name, false),
+        };
+        let arith = |b: &str| -> Option<BinOp> {
+            Some(match b {
+                "add" => BinOp::Add,
+                "sub" => BinOp::Sub,
+                "mul" => BinOp::Mul,
+                "div" => BinOp::Div,
+                "rem" => BinOp::Rem,
+                "bitand" => BinOp::BitAnd,
+                "bitor" => BinOp::BitOr,
+                "bitxor" => BinOp::BitXor,
+                "shl" => BinOp::Shl,
+                "shr" => BinOp::Shr,
+                _ => return None,
+            })
+        };
+        let apply = |this: &Self, op: BinOp, l: Value<'tcx>, r: Value<'tcx>| -> InterpResult<Value<'tcx>> {
+            if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul) {
+                let (v, overflow) = this.checked_op(op, l, r)?;
+                if overflow {
+                    let what = match op {
+                        BinOp::Add => "add",
+                        BinOp::Sub => "subtract",
+                        _ => "multiply",
+                    };
+                    return this.panic(format!("attempt to {what} with overflow"));
+                }
+                Ok(v)
+            } else {
+                this.binary_op(op, l, r)
+            }
+        };
+        if let Some(op) = arith(base) {
+            if assign {
+                let loc = self.deref_value(&vals[0])?;
+                let cur = self.read(&loc)?;
+                let v = apply(self, op, cur, vals[1].clone())?;
+                self.write(&loc, v)?;
+                return Ok(Some(Value::unit()));
+            }
+            return apply(self, op, vals[0].clone(), vals[1].clone()).map(Some);
+        }
+        let v = match name {
+            "neg" => self.unary_op(UnOp::Neg, vals[0].clone())?,
+            "not" => self.unary_op(UnOp::Not, vals[0].clone())?,
+            "eq" | "ne" | "lt" | "le" | "gt" | "ge" | "partialCmp" => {
+                let l = self.read(&self.deref_value(&vals[0])?)?;
+                let r = self.read(&self.deref_value(&vals[1])?)?;
+                let op = match name {
+                    "eq" => BinOp::Eq,
+                    "ne" => BinOp::Ne,
+                    "lt" => BinOp::Lt,
+                    "le" => BinOp::Le,
+                    "gt" => BinOp::Gt,
+                    "ge" => BinOp::Ge,
+                    _ => {
+                        // `Option<Ordering>`: `None` only for NaN.
+                        let less = matches!(self.binary_op(BinOp::Lt, l.clone(), r.clone())?, Value::Bool(true));
+                        let equal = matches!(self.binary_op(BinOp::Eq, l.clone(), r.clone())?, Value::Bool(true));
+                        let greater = matches!(self.binary_op(BinOp::Gt, l, r)?, Value::Bool(true));
+                        let name = if less { "Less" } else if equal { "Equal" } else if greater { "Greater" } else { return Ok(Some(self.option(None))) };
+                        let Some(ordering) = tcx.lang_items().get(LangItem::Ordering) else { return self.unsupported("`partialCmp` without the `Ordering` lang item") };
+                        let variant = tcx.adt_def(ordering).variants().iter().position(|v| v.name.as_str() == name).unwrap_or(0);
+                        return Ok(Some(self.option(Some(Value::Adt { variant, fields: Vec::new() }))));
+                    }
+                };
+                self.binary_op(op, l, r)?
+            }
+            _ => return Ok(None),
+        };
+        Ok(Some(v))
+    }
+
+    /// `Some(v)` or `None`, for the `Option` lang items.
+    pub fn option(&self, v: Option<Value<'tcx>>) -> Value<'tcx> {
+        let tcx = self.tcx;
+        let li = tcx.lang_items();
+        let variant_of = |item| {
+            li.get(item).and_then(|d| {
+                let adt = tcx.adt_def(tcx.parent(d));
+                adt.variants().iter().position(|v| v.def_id == d)
+            })
+        };
+        match v {
+            Some(x) => Value::Adt { variant: variant_of(LangItem::OptionSome).unwrap_or(1), fields: vec![x] },
+            None => Value::Adt { variant: variant_of(LangItem::OptionNone).unwrap_or(0), fields: Vec::new() },
+        }
+    }
+
+    /// The elements a slice pointer covers.
+    pub fn read_slice(&self, v: &Value<'tcx>) -> InterpResult<Vec<Value<'tcx>>> {
+        match v {
+            Value::SlicePtr { array, start, len } => match self.read(&Location { alloc: array.alloc, path: array.path.clone(), slice: None })? {
+                Value::Array(xs) => Ok(xs[*start..*start + *len].to_vec()),
+                Value::Vec(xs) => Ok(xs[*start..*start + *len].to_vec()),
+                _ => self.ub("a slice pointer that doesn't point into an array"),
+            },
+            Value::Ptr(p) => match self.read(&Location { alloc: p.alloc, path: p.path.clone(), slice: None })? {
+                Value::Array(xs) => Ok(xs),
+                _ => self.ub("expected a slice"),
+            },
+            _ => self.ub("expected a slice"),
+        }
+    }
+
+    fn read_str_slice(&self, v: &Value<'tcx>) -> InterpResult<Vec<String>> {
+        self.read_slice(v)?.iter().map(|s| self.read_str(s)).collect()
+    }
+}

@@ -1,0 +1,66 @@
+fn calc(_1: int32, _2: int32) -> int32 {
+    debug a => _1;
+    debug b => _2;
+    let mut _0: int32;
+    let mut _3: int32;
+    let mut _4: int32;
+    let mut _5: (int32, bool);
+    let mut _6: (int32, bool);
+    let mut _7: bool;
+
+    bb0: {
+        _5 = AddWithOverflow(_1, _2);
+        assert(!move (_5.1: bool), "attempt to compute `{} Add {}`, which would overflow", _1, _2) -> bb1;
+    }
+
+    bb1: {
+        _4 = move (_5.0: int32);
+        _6 = MulWithOverflow(move _4, const 2_int32);
+        assert(!move (_6.1: bool), "attempt to compute `{} Mul {}`, which would overflow", _4, const 2_int32) -> bb2;
+    }
+
+    bb2: {
+        _3 = move (_6.0: int32);
+        _7 = Eq(_2, const 0_int32);
+        assert(!move _7, "attempt to divide `{}` by zero", _3) -> bb3;
+    }
+
+    bb3: {
+        _0 = Div(move _3, _2);
+        return;
+    }
+}
+
+fn at(_1: [int64; 3], _2: uint) -> int64 {
+    debug xs => _1;
+    debug i => _2;
+    let mut _0: int64;
+    let mut _3: uint;
+    let mut _4: uint;
+    let mut _5: bool;
+
+    bb0: {
+        _3 = _2;
+        _4 = Len(_1);
+        _5 = Lt(_3, _4);
+        assert(move _5, "index out of bounds: the length is {} but the index is {}", _4, _3) -> bb1;
+    }
+
+    bb1: {
+        _0 = _1[_3];
+        return;
+    }
+}
+
+fn float(_1: float64) -> float64 {
+    debug x => _1;
+    let mut _0: float64;
+    let mut _2: float64;
+
+    bb0: {
+        _2 = Mul(_1, const 2_float64);
+        _0 = Add(move _2, const 1_float64);
+        return;
+    }
+}
+

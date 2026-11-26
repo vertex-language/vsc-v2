@@ -1,0 +1,65 @@
+error: 2 positional arguments in format string, but there is 1 argument
+ --> $DIR/format-errors.vs:5:20
+  |
+5 |     println("{} is {}", age) //~ ERROR 2 positional arguments in format string, but there is 1 argument
+  |                    ^^
+
+error: invalid reference to positional argument 1 (there is 1 argument)
+ --> $DIR/format-errors.vs:6:15
+  |
+6 |     println("{1}", age) //~ ERROR invalid reference to positional argument 1 (there is 1 argument)
+  |               ^
+  |
+  = note: positional arguments are zero-based
+
+error: argument never used
+ --> $DIR/format-errors.vs:7:21
+  |
+7 |     println("done", age) //~ ERROR argument never used
+  |             ------  ^^^ argument never used
+  |             |
+  |             formatting specifier missing
+
+error: unknown format trait `z`
+ --> $DIR/format-errors.vs:8:16
+  |
+8 |     println("{:z}", age) //~ ERROR unknown format trait `z`
+  |                ^
+  |
+  = note: the only appropriate formatting traits are:
+         - ``, which uses the `Display` trait
+         - `?`, which uses the `Debug` trait
+         - `e`, which uses the `LowerExp` trait
+         - `E`, which uses the `UpperExp` trait
+         - `o`, which uses the `Octal` trait
+         - `p`, which uses the `Pointer` trait
+         - `b`, which uses the `Binary` trait
+         - `x`, which uses the `LowerHex` trait
+         - `X`, which uses the `UpperHex` trait
+
+error: invalid format string: expected `}` but string was terminated
+ --> $DIR/format-errors.vs:9:14
+  |
+9 |     println("{age") //~ ERROR invalid format string: expected `}` but string was terminated
+  |              ^ expected `}` in format string
+  |
+  = note: if you intended to print `{`, you can escape it using `{{`
+
+error: format argument must be a string literal
+  --> $DIR/format-errors.vs:10:13
+   |
+10 |     println(age) //~ ERROR format argument must be a string literal
+   |             ^^^
+help: you might be missing a string literal to format with
+   |
+10 |     println("{}", age) //~ ERROR format argument must be a string literal
+   |             ++++++
+
+error: `assertEq` requires two values to compare
+  --> $DIR/format-errors.vs:11:5
+   |
+11 |     assertEq(age) //~ ERROR `assertEq` requires two values to compare
+   |     ^^^^^^^^^^^^^ expects at least 2 arguments
+
+error: aborting due to 7 previous errors
+

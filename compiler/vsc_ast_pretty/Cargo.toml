@@ -1,0 +1,10 @@
+[package]
+name = "vsc_ast_pretty"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vsc_ast.workspace = true
+vsc_span.workspace = true

@@ -1,0 +1,20 @@
+error[E0412]: cannot find type `t` in this scope
+ --> $DIR/lowercase-type-param.vs:6:15
+  |
+6 | func id<t>(x: t) -> t { x }
+  |               ^ not found in this scope
+  |
+  = note: `t` is a lifetime parameter: lowercase generic parameters are lifetimes
+  = help: type parameters are `PascalCase`: `T`
+
+error[E0412]: cannot find type `t` in this scope
+ --> $DIR/lowercase-type-param.vs:6:21
+  |
+6 | func id<t>(x: t) -> t { x }
+  |                     ^ not found in this scope
+  |
+  = note: `t` is a lifetime parameter: lowercase generic parameters are lifetimes
+  = help: type parameters are `PascalCase`: `T`
+
+error: aborting due to 2 previous errors
+

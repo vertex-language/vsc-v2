@@ -1,0 +1,21 @@
+Num(7) -> digit 7
+Num(-3) -> negative -3
+Num(42) -> number 42
+Op('+') -> additive
+Op('*') -> op *
+LParen -> paren
+RParen -> paren
+Ident { name: "x", len: 1 } -> short x
+Ident { name: "foo", len: 3 } -> ident foo
+0: zero
+5: one digit
+50: two digits
+255: three digits
+y axis 3
+x axis 4
+anti 2
+other
+40 -1
+1 then 4 more
+penultimate 4
+30

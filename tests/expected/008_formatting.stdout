@@ -1,0 +1,12 @@
+[    12] [ab    ] [  c   ] [**mid**]
+[+42] [0003.142] [-0042] [true ]
+[ff] [0xFF] [0o10] [0b101] [0x000000ff]
+'x' "quote\"d\n" "tab\t"
+Point { x: 3, y: -4 } Meters(2.5)
+Point {
+    x: 3,
+    y: -4,
+}
+(1, "two", true) [1, 2, 3] (5,)
+[    7] [       8] [1.23]
+{literal braces} 1

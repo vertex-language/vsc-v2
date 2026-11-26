@@ -1,0 +1,9 @@
+[package]
+name = "vsc_parse_format"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Like rustc_parse_format: works on the string alone, with byte offsets.
+[dependencies]
